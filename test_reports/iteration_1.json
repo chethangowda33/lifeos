@@ -1,0 +1,42 @@
+{
+  "summary": "First full E2E iteration for LifeOS Step A+B. Backend: 20/20 pytest cases passing (auth, exercises, programs, routines CRUD, body metrics + auto BMI/BMR). Frontend: Login -> Dashboard, sidebar nav (all 9 items), theme toggle (default light, persists to localStorage), Workout (routines empty state + builder + picker + save + Explore tab with 14 programs and working level/equipment filters), BodyMetrics (7 cards, BMI/BMR auto values, manual log dialog), placeholder routes /nutrition /habits /coach /journal /sleep /progress all render, logout redirects to /login. All flows verified end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/auth/profile + startup seeding", "issue": "seed_admin_user is not idempotent for the profile field — it only sets {age:28, height:178, weight:75, sex:male} on first user creation. Once the profile is overwritten (by a UI edit, test, or prior session), startup does NOT restore it. We found the admin profile had drifted to {age:22, height:167, weight:88} before this run, which made /body-metrics/latest return BMI 31.6 / BMR 1819 instead of the documented seed values (BMI 23.7 / BMR 1728). After restoring via PUT /api/auth/profile, values match exactly. Consider always resetting the seeded profile on startup OR documenting this."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "BodyMetrics cards", "issues": ["Recharts emits 'width(-1) height(-1)' console warning for the inline history charts when there is <2 data points — only a console noise, not visible to user, but worth setting minWidth/minHeight or wrapping in ResponsiveContainer with explicit aspect."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lifeos_backend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Make seeded admin profile idempotent (always overwrite to {age:28, height_cm:178, weight_kg:75, sex:'male'} when ADMIN_RESET=true or unconditionally during seeding) so /body-metrics/latest returns documented BMI 23.7 / BMR 1728 on a clean run.",
+    "Add minWidth/minHeight (or set chart aspect) on BodyMetrics history mini-charts to silence Recharts width(-1) warning when history is empty."
+  ],
+  "critical_code_review_comments": [
+    "server.py login endpoint does NOT implement brute-force lockout after N failed attempts — playbook recommends ≥5-fail throttle. Currently any number of wrong passwords is allowed.",
+    "Cookie flag COOKIE_SECURE=False is hard-coded; even though running behind https reverse proxy, recommend deriving from env so production toggles secure=True.",
+    "PUT /api/auth/profile replaces the entire profile dict ({k:v for k,v in payload if not None}); a partial update (only weight_kg) wipes age/height/sex. Should merge with existing profile rather than replace. This is exactly what caused the BMI drift observed during testing.",
+    "list_exercises returns at most 500 docs via to_list(500); fine for 66 exercises but document the cap.",
+    "Frontend Dashboard fetches /exercises, /programs, /routines on every mount without any caching — acceptable for now but could be batched into a single /api/summary endpoint to reduce request count.",
+    "BodyMetrics page logs the metric via UI then refreshes — verified working, but note the chart container needs explicit dimensions to avoid the Recharts warning."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lifeos_backend.py (new)"
+  ],
+  "success_rate": {"backend": "100% (20/20)", "frontend": "100% — all 24 listed flows verified"},
+  "test_credentials": "cg3@lifeos.com / test1234 (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Backend startup seeds 66 exercises + 14 programs + admin user idempotently. Pytest creates TEST_-prefixed routines and body_fat entries; routine cleanup performed at the end (test_delete_routine + manual cleanup of UI-created TEST_Push UI). One body_fat log (value 17.5 from pytest, 18.0 from UI) remains in history — minor.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest file at /app/backend/tests/test_lifeos_backend.py is reusable as regression suite. Admin profile may drift if tests modify it — pytest restores to {28,178,75,male}. If /body-metrics/latest values look wrong on next run, first do PUT /api/auth/profile with the documented seed values before debugging the compute logic (it's correct). Radix Selects work via click trigger + click option (used get_by_role('option', name=...) successfully).",
+  "rca_of_observed_bmi_mismatch": "Reproduction: Login as cg3@lifeos.com, GET /api/body-metrics/latest. Observed BMI=31.6, BMR=1819. Root cause: profile in DB was {age:22, height_cm:167, weight_kg:88} from prior session, not the seeded {28,178,75,male}; seed_admin_user only writes profile when user does not exist. Mitigation: PUT /api/auth/profile with seeded values OR change seed_admin_user to also $set profile fields on every startup."
+}

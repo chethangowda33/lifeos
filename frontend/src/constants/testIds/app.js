@@ -1,0 +1,84 @@
+// Test IDs for app navigation, dashboard, workout, body metrics.
+
+export const NAV = {
+  sidebar: 'nav-sidebar',
+  themeToggle: 'nav-theme-toggle',
+  themeLightButton: 'nav-theme-light',
+  themeDarkButton: 'nav-theme-dark',
+  accentSwatch: 'nav-accent-swatch',
+  itemDashboard: 'nav-item-dashboard',
+  itemWorkout: 'nav-item-workout',
+  itemBodyMetrics: 'nav-item-body-metrics',
+  itemNutrition: 'nav-item-nutrition',
+  itemHabits: 'nav-item-habits',
+  itemCoach: 'nav-item-coach',
+  itemJournal: 'nav-item-journal',
+  itemSleep: 'nav-item-sleep',
+  itemProgress: 'nav-item-progress',
+  logoutButton: 'nav-logout-button',
+};
+
+export const DASHBOARD = {
+  root: 'dashboard-root',
+  greeting: 'dashboard-greeting',
+  statThisWeek: 'dashboard-stat-this-week',
+  statStreak: 'dashboard-stat-streak',
+  statVolume: 'dashboard-stat-volume',
+  statWeight: 'dashboard-stat-weight',
+  resumeCard: 'dashboard-resume-card',
+  volumeChart: 'dashboard-volume-chart',
+  recentList: 'dashboard-recent-list',
+  recordsCard: 'dashboard-records-card',
+  muscleFocus: 'dashboard-muscle-focus',
+};
+
+export const WORKOUT = {
+  root: 'workout-root',
+  tabRoutines: 'workout-tab-routines',
+  tabPlans: 'workout-tab-plans',
+  tabExplore: 'workout-tab-explore',
+  planCard: 'workout-plan-card',
+  startPlanDayButton: 'workout-start-plan-day-button',
+  planCooldownSelect: 'workout-plan-cooldown-select',
+  planRepeatConfirm: 'workout-plan-repeat-confirm',
+  newPlanButton: 'workout-new-plan-button',
+  planBuilderNameInput: 'workout-plan-builder-name-input',
+  planBuilderAddDayButton: 'workout-plan-builder-add-day-button',
+  planBuilderSaveButton: 'workout-plan-builder-save-button',
+  planBuilderDayNameInput: 'workout-plan-builder-day-name-input',
+  planBuilderAddExerciseButton: 'workout-plan-builder-add-exercise-button',
+  newRoutineButton: 'workout-new-routine-button',
+  exploreButton: 'workout-explore-button',
+  routineCard: 'workout-routine-card',
+  startRoutineButton: 'workout-start-routine-button',
+  programCard: 'workout-program-card',
+  filterLevel: 'workout-filter-level',
+  filterGoal: 'workout-filter-goal',
+  filterEquipment: 'workout-filter-equipment',
+  builderNameInput: 'workout-builder-name-input',
+  builderAddExerciseButton: 'workout-builder-add-exercise-button',
+  builderSaveButton: 'workout-builder-save-button',
+  pickerSearch: 'workout-picker-search',
+  pickerFilterEquipment: 'workout-picker-filter-equipment',
+  pickerFilterMuscle: 'workout-picker-filter-muscle',
+  pickerExerciseItem: 'workout-picker-exercise-item',
+};
+
+export const COACH = {
+  root: 'coach-root',
+  input: 'coach-input',
+  sendButton: 'coach-send-button',
+  message: 'coach-message',
+  quickPrompt: 'coach-quick-prompt',
+  newChatButton: 'coach-new-chat-button',
+  copyButton: 'coach-copy-button',
+  retryButton: 'coach-retry-button',
+};
+
+export const BODY_METRICS = {
+  root: 'body-metrics-root',
+  card: 'body-metrics-card',
+  addButton: 'body-metrics-add-button',
+  valueInput: 'body-metrics-value-input',
+  submitButton: 'body-metrics-submit-button',
+};

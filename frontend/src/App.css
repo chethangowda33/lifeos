@@ -1,0 +1,4 @@
+/* App.css — minimal, theme handled via index.css variables. */
+.App {
+  min-height: 100vh;
+}

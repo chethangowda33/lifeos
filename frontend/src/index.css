@@ -1,0 +1,124 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Manrope:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Light theme — default */
+  --background: 30 33% 98%;
+  --foreground: 0 0% 9%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 9%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 9%;
+
+  /* Accent (default: maroon #c0152a). Runtime overrides live in ThemeContext. */
+  --primary: 353 79% 42%;
+  --primary-foreground: 0 0% 100%;
+  --maroon: 353 79% 42%;
+  --maroon-hover: 353 79% 36%;
+  --maroon-foreground: 0 0% 100%;
+
+  --secondary: 30 20% 94%;
+  --secondary-foreground: 0 0% 14%;
+  --muted: 30 15% 95%;
+  --muted-foreground: 0 0% 40%;
+  --accent: 353 79% 95%;
+  --accent-foreground: 353 79% 30%;
+  --destructive: 0 75% 45%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 30 10% 88%;
+  --input: 30 10% 90%;
+  --ring: 353 79% 42%;
+
+  --chart-1: 353 79% 42%;
+  --chart-2: 30 80% 55%;
+  --chart-3: 200 70% 45%;
+  --chart-4: 145 50% 40%;
+  --chart-5: 270 50% 50%;
+
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 0 0% 15%;
+  --sidebar-border: 30 10% 88%;
+
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: 0 0% 7%;
+  --foreground: 30 20% 96%;
+  --card: 0 0% 10%;
+  --card-foreground: 30 20% 96%;
+  --popover: 0 0% 10%;
+  --popover-foreground: 30 20% 96%;
+
+  --primary: 353 79% 52%;
+  --primary-foreground: 0 0% 100%;
+  --maroon: 353 79% 52%;
+  --maroon-hover: 353 79% 44%;
+  --maroon-foreground: 0 0% 100%;
+
+  --secondary: 0 0% 14%;
+  --secondary-foreground: 30 20% 96%;
+  --muted: 0 0% 14%;
+  --muted-foreground: 0 0% 65%;
+  --accent: 353 79% 18%;
+  --accent-foreground: 353 79% 80%;
+  --destructive: 0 75% 55%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 18%;
+  --input: 0 0% 18%;
+  --ring: 353 79% 52%;
+
+  --sidebar: 0 0% 9%;
+  --sidebar-foreground: 30 20% 90%;
+  --sidebar-border: 0 0% 16%;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Manrope', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "ss01", "cv11";
+  }
+  h1, h2, h3, h4 {
+    font-family: 'Bricolage Grotesque', 'Manrope', sans-serif;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* Custom utility for maroon accent text */
+.text-maroon { color: hsl(var(--maroon)); }
+.bg-maroon { background-color: hsl(var(--maroon)); }
+.border-maroon { border-color: hsl(var(--maroon)); }
+
+/* Subtle grain for depth */
+.grain::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: radial-gradient(hsl(var(--foreground)) 1px, transparent 1px);
+  background-size: 3px 3px;
+}
+
+/* Scrollbar polish */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+
+/* Animations */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up { animation: fade-up 0.4s ease-out both; }
