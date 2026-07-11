@@ -1,0 +1,31 @@
+# Render Blueprint — creates the LifeOS backend service automatically.
+# Dashboard → New → Blueprint → pick this repo. Secrets (sync: false) are asked for once.
+services:
+  - type: web
+    name: lifeos-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      - key: DB_NAME
+        value: lifeos
+      - key: COOKIE_SECURE
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: http://localhost:3000
+      - key: MONGO_URL
+        sync: false
+      - key: INVITE_CODE
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
