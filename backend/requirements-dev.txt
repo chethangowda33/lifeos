@@ -1,0 +1,5 @@
+# Local development / test tools — not installed in production.
+-r requirements.txt
+pytest>=8.0.0
+pytest-xdist>=3.6.0
+requests>=2.31.0
