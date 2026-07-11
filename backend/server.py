@@ -18,6 +18,7 @@ import re
 import json
 import uuid
 import math
+import hashlib
 import logging
 from collections import Counter
 from datetime import datetime, timezone, timedelta
@@ -1448,6 +1449,20 @@ async def strength_standards(user=Depends(get_current_user)):
 # ──────────────────────────────────────────────────────────────────────────────
 # Seeding
 # ──────────────────────────────────────────────────────────────────────────────
+def _seed_signature() -> str:
+    """Fingerprint of all seed data — seeding is skipped on boot when unchanged.
+    (Re-seeding writes 1400+ docs one by one; over a cross-region Atlas link that
+    is minutes of startup time on every wake.)"""
+    h = hashlib.md5()
+    h.update(repr(EXERCISES).encode())
+    h.update(repr(PROGRAMS).encode())
+    for fname in ("exercisedb_seed.json", "curated_animations.json"):
+        p = ROOT_DIR / fname
+        if p.exists():
+            h.update(p.read_bytes())
+    return h.hexdigest()
+
+
 async def seed_exercises():
     """Seed exercises and always refresh image_url + image_url_end + instructions on startup."""
     existing = {d["name"]: d async for d in db.exercises.find({}, {"name": 1, "image_url": 1})}
@@ -1625,10 +1640,16 @@ async def on_startup():
     await db.exercise_notes.create_index([("user_id", 1), ("exercise_id", 1)], unique=True)
     await db.pr_events.create_index([("user_id", 1), ("created_at", -1)])
     await db.knowledge.create_index([("title", 1)])
-    # Seed
-    await seed_exercises()
-    await seed_exercisedb_library()
-    await seed_programs()
+    # Seed — skipped when seed data hasn't changed since the last boot
+    sig = _seed_signature()
+    marker = await db.meta.find_one({"_id": "seed_signature"})
+    if marker and marker.get("sig") == sig:
+        logger.info("Seed data unchanged — skipping exercise/program seeding")
+    else:
+        await seed_exercises()
+        await seed_exercisedb_library()
+        await seed_programs()
+        await db.meta.replace_one({"_id": "seed_signature"}, {"_id": "seed_signature", "sig": sig}, upsert=True)
     await seed_admin_user()
     try:
         await backfill_intelligence()
