@@ -452,7 +452,9 @@ function WeekStrip({ workouts }) {
 /* "Next up" hero — the app picks today's workout (most-rested plan day). */
 function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate, onExplore }) {
   const [pickOpen, setPickOpen] = useState(false);
-  const [goalKey, setGoalKey] = useState(null); // recommendation goal filter (empty state)
+  const [goalKey, setGoalKey] = useState(() => {
+    try { return localStorage.getItem("lifeos:reco-goal") || null; } catch { return null; }
+  }); // recommendation goal filter (empty state) — seeded from onboarding
   const [dismissed, setDismissed] = useState(() => {
     try { return JSON.parse(localStorage.getItem(DISMISSED_KEY)) || []; } catch { return []; }
   });

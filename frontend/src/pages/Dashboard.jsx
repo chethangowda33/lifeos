@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/api";
+import Onboarding from "@/components/Onboarding";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -52,6 +53,8 @@ function fmtRelative(iso) {
 /* ── page ────────────────────────────────────────────────────────────────── */
 export default function Dashboard() {
   const { user } = useAuth();
+  const navigate = useNavigate();
+  const [showOnboarding, setShowOnboarding] = useState(false);
   const [workouts, setWorkouts] = useState([]);
   const [stats, setStats] = useState({ total_workouts: 0, total_volume: 0, total_sets: 0, total_duration: 0 });
   const [routines, setRoutines] = useState([]);
@@ -86,6 +89,22 @@ export default function Dashboard() {
 
   const derived = useMemo(() => computeDerived(workouts), [workouts]);
 
+  // First-run onboarding — only for brand-new accounts that haven't seen it.
+  useEffect(() => {
+    if (loading) return;
+    const seen = (() => { try { return localStorage.getItem("lifeos:onboarded"); } catch { return "1"; } })();
+    if (!seen && workouts.length === 0 && routines.length === 0) setShowOnboarding(true);
+  }, [loading, workouts, routines]);
+
+  const finishOnboarding = ({ goal }) => {
+    try {
+      localStorage.setItem("lifeos:onboarded", "1");
+      if (goal) localStorage.setItem("lifeos:reco-goal", goal);
+    } catch { /* ignore */ }
+    setShowOnboarding(false);
+    if (goal) navigate("/workout");
+  };
+
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
   const firstName = (user?.name || "Athlete").split(" ")[0];
@@ -98,6 +117,8 @@ export default function Dashboard() {
 
   return (
     <div data-testid={DASHBOARD.root} className="max-w-6xl space-y-6 animate-fade-up">
+      <Onboarding open={showOnboarding} onComplete={finishOnboarding} />
+
       {/* Hero */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
         <div>
