@@ -21,6 +21,7 @@ import Progress from "@/pages/Progress";
 import Coach from "@/pages/Coach";
 import Admin from "@/pages/Admin";
 import Habits from "@/pages/Habits";
+import Sleep from "@/pages/Sleep";
 import Placeholder from "@/pages/Placeholder";
 
 function App() {
@@ -47,7 +48,7 @@ function App() {
               <Route path="/habits" element={<Habits />} />
               <Route path="/coach" element={<Coach />} />
               <Route path="/journal" element={<Placeholder title="Journal" description="Daily notes, reflections, mood." icon={BookOpen} />} />
-              <Route path="/sleep" element={<Placeholder title="Sleep" description="Recovery and sleep quality." icon={Moon} />} />
+              <Route path="/sleep" element={<Sleep />} />
               <Route path="/progress-old" element={<Placeholder title="Progress" description="Long-term trends across pillars." icon={Sparkles} />} />
             </Route>
 
