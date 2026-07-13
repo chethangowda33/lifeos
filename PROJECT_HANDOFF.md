@@ -48,5 +48,23 @@ LifeOS = personal life-tracking app for me (chethan). Workout module goal: match
 - **Multi-user restriction (DONE, verified):** registration is invite-only when env `INVITE_CODE` is set (unset locally → open, tests unaffected; 39 still passing). `RegisterIn.invite_code` + 403 check in `/auth/register`; Register page has an "Invite code" input (AuthContext.register takes 4th arg). Roles: seeded admin (`ADMIN_EMAIL`, role="admin" — cg3 already admin), all signups role="user"; `require_admin` dependency + `GET /admin/users` (403 for non-admins — verified). `COOKIE_SECURE` now env-driven (`COOKIE_SECURE=true` in prod).
 - **Deploy prep (code-side DONE, actual deploy = user does it):** `frontend/vercel.json` proxies `/api/*` → Render backend (user must replace placeholder host); `api.js` falls back to same-origin `/api` when `REACT_APP_BACKEND_URL` unset (proxy mode). Root `.gitignore` already covers `.env`. Full beginner walkthrough in **`DEPLOYMENT.md`** (repo root): GitHub → Atlas M0 (+ mongodump/restore from the `lifeos-mongo` container) → Render (env table incl. INVITE_CODE, JWT_SECRET, COOKIE_SECURE=true, strong ADMIN_PASSWORD) → Vercel (root `frontend`, no env, `--legacy-peer-deps` install override if build fails) → set FRONTEND_URL back on Render. Not deployed yet — user is doing it themselves following the guide.
 
-## 7. Open questions for the user
-- None blocking. #2–#6 are all done and verified (2026-07-10). Only **#1 PWA / offline logging** remains: manifest + service worker + installable + offline set logging + background sync; then upgrade train reminders (#6) to real background push. PWA needs HTTPS → do it after the deploy.
+## 7. Deployment status (2026-07-11)
+- **LIVE.** Frontend: `https://lifeos-nine-eta.vercel.app` (Vercel, root=frontend, `.npmrc` legacy-peer-deps). Backend: `https://lifeos-api-g6hq.onrender.com` (Render free, env incl. INVITE_CODE, COOKIE_SECURE=true). DB: MongoDB Atlas (`lifeos-cluster`). Vercel proxies `/api/*`→Render (`frontend/vercel.json`). Verified full chain: login, invite gate, data. Render free tier sleeps after 15min (first hit ~30-50s). Prod requirements fixes: added `httpx`+`dnspython`, removed unused `jq`/etc (build-breaking); seed-skip on boot via `_seed_signature()` (was ~10min cold start). Push to `main` = auto-deploy both.
+
+## 8. UI enhancement batch (in progress, 2026-07-11) — user asked to "do all this"
+Premium visual overhaul. Order + status:
+1. **Workout empty state → recommendations (DONE, verified, committed).** `Workout.jsx`: replaced "Nothing queued yet" with goal chips (RECO_GOALS: muscle/strength/cut/fit → program.goal) + recommendation hero (best beginner program in goal, week-day preview via WEEK_PRESETS) + 2 more-program cards. Reuses `openProgram` flow. Falls back to simple prompt if no programs. Verified in browser: all 4 goals surface different programs, Start opens ProgramDetailDialog.
+2. **Dashboard "today" header** — greeting + weekly-goal ring (workouts done/target) + streak + muscle recovery status + today's plan + quick stat tiles (protein/sleep/water). Uses existing data (`/workouts`, `/workouts/muscle-volume` recovery fields, body-metrics, nutrition/sleep). TODO.
+3. **Streak & weekly goal ring** — workout streak + longest + weekly ring. TODO.
+4. **Recovery-based suggestion** — surface muscle recovery ("chest ready") from muscle-volume data. TODO.
+5. **PR trophy shelf** — page/section of all PRs as badges (data in pr_events/personal_records). TODO.
+6. **Quick-add on dashboard** — one-tap log water/weight/start next. TODO.
+7. **Progress analytics page** — charts (Recharts already installed): bodyweight line (body-metrics/history), weekly volume bars, muscle-balance radar, stat tiles, e1RM lines, time-range 4W/3M/1Y. TODO.
+8. **Every empty state redone** — Nutrition/Habits/Journal/Sleep get the same treatment. TODO.
+9. **Post-workout moment** — animated PR reveal + confetti on finish (share card already exists). TODO.
+10. **Weekly recap** — AI Sunday digest. TODO.
+11. **First-run onboarding** — 3 questions (goal/experience/days) → auto-recommend plan + seed habits. TODO.
+- Rules for this batch: use `--maroon`/CSS-var tokens (NOT hardcoded colors — accent is user-themed, currently cyan), minimal edits, reuse existing data/flows, verify each in browser, commit+push each (auto-deploys). Mockups were shown & approved for #1, #2, #7.
+
+## 9. Still pending (pre-UI-batch)
+- **PWA / offline logging** — manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Now possible (HTTPS live). Do after UI batch.
