@@ -1,12 +1,39 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import api from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Dumbbell, TrendingUp, Calendar, Trash2, Flame } from "lucide-react";
+import {
+  Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip,
+} from "recharts";
 import { PROGRESS } from "@/constants/testIds";
 import MuscleHeatmap from "@/components/MuscleHeatmap";
+
+// Weekly training volume for the last `n` weeks — pure function over workout history.
+function weeklyVolume(workouts, n = 10) {
+  const startOfWeek = (d) => {
+    const x = new Date(d);
+    x.setHours(0, 0, 0, 0);
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // Monday
+    return x;
+  };
+  const thisWeek = startOfWeek(new Date());
+  const weeks = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const ws = new Date(thisWeek);
+    ws.setDate(ws.getDate() - i * 7);
+    weeks.push({ t: ws.getTime(), label: ws.toLocaleDateString(undefined, { month: "short", day: "numeric" }), volume: 0 });
+  }
+  (workouts || []).forEach((w) => {
+    const t = startOfWeek(new Date(w.created_at)).getTime();
+    const b = weeks.find((x) => x.t === t);
+    if (b) b.volume += w.total_volume_kg || 0;
+  });
+  weeks.forEach((b) => { b.volume = Math.round(b.volume); });
+  return weeks;
+}
 
 function fmtMinutes(secs) {
   if (!secs) return "0m";
@@ -80,6 +107,8 @@ export default function Progress() {
         <StatBox icon={TrendingUp} label="Total Sets" value={stats.total_sets} />
         <StatBox icon={Calendar} label="Total Time" value={fmtMinutes(stats.total_duration)} />
       </div>
+
+      <VolumeTrend workouts={workouts} loading={loading} />
 
       <WorkoutCalendar workouts={workouts} />
 
@@ -213,6 +242,42 @@ export default function Progress() {
 }
 
 // GitHub-style training calendar — last 12 weeks, one cell per day.
+/* Weekly training-volume trend — visualizes progressive overload over time. */
+function VolumeTrend({ workouts, loading }) {
+  const data = useMemo(() => weeklyVolume(workouts, 10), [workouts]);
+  const hasData = data.some((d) => d.volume > 0);
+  if (loading || !hasData) return null;
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold tracking-tight">Training volume</h3>
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">kg lifted · last 10 weeks</span>
+      </div>
+      <div className="h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+            <defs>
+              <linearGradient id="volFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="hsl(var(--maroon))" stopOpacity={0.35} />
+                <stop offset="100%" stopColor="hsl(var(--maroon))" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+            <YAxis hide domain={[0, "dataMax"]} />
+            <Tooltip
+              cursor={{ stroke: "hsl(var(--maroon))", strokeOpacity: 0.3 }}
+              contentStyle={{ background: "hsl(var(--bg-elevated, var(--card)))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+              labelStyle={{ color: "hsl(var(--muted-foreground))" }}
+              formatter={(v) => [`${v.toLocaleString()} kg`, "Volume"]}
+            />
+            <Area type="monotone" dataKey="volume" stroke="hsl(var(--maroon))" strokeWidth={2} fill="url(#volFill)" />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </Card>
+  );
+}
+
 function WorkoutCalendar({ workouts }) {
   const trained = new Set(
     (workouts || []).map((w) => new Date(w.created_at).toDateString()),
