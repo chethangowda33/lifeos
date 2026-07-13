@@ -57,13 +57,17 @@ Premium visual overhaul. Order + status:
 2. **Dashboard "today" band (DONE #2+#3+#4 merged, verified, pushed).** `Dashboard.jsx`: new `TodayHero` under greeting — SVG weekly-goal ring (weekCount/target=4), streak line, muscle recovery chips (ready/recovering/worked-today) from `/workouts/muscle-volume` (recovery field: fresh/worked/recovering). Chips only render when recent training exists. Verified with a logged workout.
 3. **Streak & weekly goal ring** — DONE (part of #2 TodayHero).
 4. **Recovery-based suggestion** — DONE (recovery chips in #2 TodayHero).
-5. **PR trophy shelf** — page/section of all PRs as badges (data in pr_events/personal_records). TODO.
-6. **Quick-add on dashboard** — one-tap log water/weight/start next. TODO.
+5. **PR trophy shelf (DONE, verified, pushed).** Backend `GET /records` aggregates every exercise's personal records (name + headline heaviest-weight, sorted desc). Frontend `PRShelf` grid on Progress page. Verified 5 PRs render.
+6. **Quick-add on dashboard — SKIPPED (low value for this app).** Original idea was log water/weight/start-next: water=nutrition (excluded + Nutrition page is a placeholder), bodyweight isn't a time-series (lives in profile), start-next already exists (ResumeCard). Revisit only if nutrition/water tracking gets built.
 7. **Progress analytics page (DONE core, verified, pushed).** Added `VolumeTrend` Recharts area chart (weekly kg volume, last 10 weeks — progressive overload). Note: bodyweight is NOT a time-series metric (lives in profile, not body_metrics); body_metrics keys are body_fat/muscle_mass/bmi/bmr etc. Muscle balance already covered by existing muscle-volume bars + MuscleHeatmap. Optional future: e1RM-per-lift lines, time-range selector, body_fat trend.
-8. **Every empty state redone** — Nutrition/Habits/Journal/Sleep get the same treatment. TODO.
-9. **Post-workout moment** — animated PR reveal + confetti on finish (share card already exists). TODO.
-10. **Weekly recap** — AI Sunday digest. TODO.
-11. **First-run onboarding** — 3 questions (goal/experience/days) → auto-recommend plan + seed habits. TODO.
+8. **Every empty state redone — BLOCKED / bigger than a tweak.** Nutrition/Habits/Journal/Sleep are `Placeholder` components in App.js (routes point at `<Placeholder>`), i.e. NOT built. "Redo their empty states" means building those pages first. Nutrition excluded by user. Habits/Journal/Sleep = future feature work, out of scope for this UI batch.
+9. **Post-workout confetti (DONE, verified, pushed).** `canvas-confetti` (installed --legacy-peer-deps) fires on the completion dialog in WorkoutSession.jsx — 3 bursts if PRs, 1 otherwise, accent-colored particles (`accentHex()` reads --maroon). Verified confetti canvas appears.
+10. **Weekly AI recap (DONE, verified, pushed).** Backend `GET /coach/recap` reuses `build_user_context` + the LLM (Groq Llama 3.3 70B prod). Frontend `WeeklyRecap` card on Dashboard (generate/refresh button, lightweight bold/bullet renderer `RecapText`). Verified real recap generated.
+11. **First-run onboarding (DONE, verified, pushed).** `components/Onboarding.jsx` — 3-question dialog (goal/experience/days). Shown once from Dashboard when a fresh account (no workouts+routines) and `localStorage lifeos:onboarded` unset. Saves goal → `lifeos:reco-goal`, navigates to /workout; HeroCard seeds its `goalKey` from that. Skipped the "seed habits" part (Habits page is a placeholder). Verified: dialog → answers → /workout with goal pre-selected.
+
+## 10. Remaining after UI batch
+- **PWA / offline logging** — the one big original item left. Manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Needs HTTPS (live now). Not started.
+- Optional future: build Nutrition/Habits/Journal/Sleep pages (currently placeholders); more Progress charts (e1RM lines, time-range selector).
 - Rules for this batch: use `--maroon`/CSS-var tokens (NOT hardcoded colors — accent is user-themed, currently cyan), minimal edits, reuse existing data/flows, verify each in browser, commit+push each (auto-deploys). Mockups were shown & approved for #1, #2, #7.
 
 ### Extra features added on user request (2026-07-11)
