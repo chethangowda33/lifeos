@@ -4,7 +4,7 @@ import api from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dumbbell, TrendingUp, Calendar, Trash2, Flame } from "lucide-react";
+import { Dumbbell, TrendingUp, Calendar, Trash2, Flame, Trophy } from "lucide-react";
 import {
   Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip,
 } from "recharts";
@@ -67,6 +67,7 @@ export default function Progress() {
   const [stats, setStats] = useState({ total_workouts: 0, total_volume: 0, total_sets: 0, total_duration: 0 });
   const [muscleVolume, setMuscleVolume] = useState([]);
   const [strength, setStrength] = useState([]);
+  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -80,6 +81,7 @@ export default function Progress() {
       setStats(s.data);
       api.get("/workouts/muscle-volume").then((r) => setMuscleVolume(r.data)).catch(() => {});
       api.get("/strength-standards").then((r) => setStrength(r.data.filter((x) => x.e1rm))).catch(() => {});
+      api.get("/records").then((r) => setRecords(r.data.records || [])).catch(() => {});
     } finally {
       setLoading(false);
     }
@@ -109,6 +111,8 @@ export default function Progress() {
       </div>
 
       <VolumeTrend workouts={workouts} loading={loading} />
+
+      <PRShelf records={records} />
 
       <WorkoutCalendar workouts={workouts} />
 
@@ -242,6 +246,34 @@ export default function Progress() {
 }
 
 // GitHub-style training calendar — last 12 weeks, one cell per day.
+/* Personal-record trophy shelf — heaviest lift per exercise. */
+function PRShelf({ records }) {
+  if (!records || records.length === 0) return null;
+  const top = records.slice(0, 9);
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-maroon" /> Personal records
+        </h3>
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{records.length} lifts</span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+        {top.map((r) => (
+          <div key={r.exercise_id} className="rounded-xl border border-border bg-card p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-lg font-semibold tabular-nums">{r.headline_value}<span className="text-[11px] text-muted-foreground font-normal"> kg</span></span>
+              <Trophy className="h-3.5 w-3.5 text-maroon/70 shrink-0" />
+            </div>
+            <p className="text-xs font-medium truncate mt-1">{r.exercise_name}</p>
+            {r.muscle_group && <span className="text-[10px] text-muted-foreground capitalize">{r.muscle_group}</span>}
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 /* Weekly training-volume trend — visualizes progressive overload over time. */
 function VolumeTrend({ workouts, loading }) {
   const data = useMemo(() => weeklyVolume(workouts, 10), [workouts]);

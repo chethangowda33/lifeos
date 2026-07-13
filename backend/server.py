@@ -1331,6 +1331,36 @@ async def exercise_records(exercise_id: str, user=Depends(get_current_user)):
     return {"records": (doc or {}).get("records", {}), "labels": PR_LABELS}
 
 
+@api.get("/records")
+async def all_records(user=Depends(get_current_user)):
+    """Every exercise's personal records for the PR trophy shelf, with names + headline PR."""
+    docs = await db.personal_records.find({"user_id": str(user["_id"])}).to_list(500)
+    oids = []
+    for d in docs:
+        try: oids.append(ObjectId(d["exercise_id"]))
+        except Exception: pass
+    names = {}
+    async for ex in db.exercises.find({"_id": {"$in": oids}}, {"name": 1, "muscle_group": 1}):
+        names[str(ex["_id"])] = {"name": ex.get("name", ""), "muscle_group": ex.get("muscle_group", "")}
+    out = []
+    for d in docs:
+        recs = d.get("records", {})
+        meta = names.get(d["exercise_id"], {})
+        # headline = heaviest weight if present, else best e1rm
+        headline = recs.get("weight") or recs.get("e1rm")
+        out.append({
+            "exercise_id": d["exercise_id"],
+            "exercise_name": meta.get("name", "Exercise"),
+            "muscle_group": meta.get("muscle_group", ""),
+            "records": recs,
+            "headline_value": (headline or {}).get("value"),
+            "headline_unit": "kg",
+        })
+    out = [r for r in out if r["headline_value"]]
+    out.sort(key=lambda r: r["headline_value"], reverse=True)
+    return {"records": out, "labels": PR_LABELS}
+
+
 @api.get("/exercises/{exercise_id}/history")
 async def exercise_history(exercise_id: str, user=Depends(get_current_user)):
     """Every logged instance of this exercise, newest first, with per-session bests."""
