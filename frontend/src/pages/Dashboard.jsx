@@ -161,6 +161,8 @@ export default function Dashboard() {
         />
       </div>
 
+      <WeeklyRecap />
+
       {/* Resume + Volume chart */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <ResumeCard routine={resumeRoutine} hasHistory={workouts.length > 0} />
@@ -176,6 +178,68 @@ export default function Dashboard() {
       {/* Muscle focus */}
       <MuscleFocus muscles={derived.muscles} loading={loading} />
     </div>
+  );
+}
+
+/* Lightweight markdown for the AI recap — bold + bullets only. */
+function RecapText({ text }) {
+  const boldify = (s) =>
+    s.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
+      p.startsWith("**") && p.endsWith("**")
+        ? <strong key={i} className="text-foreground font-medium">{p.slice(2, -2)}</strong>
+        : <span key={i}>{p}</span>);
+  return (
+    <div className="space-y-1.5 text-sm text-muted-foreground">
+      {text.split("\n").filter((l) => l.trim()).map((l, i) => {
+        const t = l.trim();
+        if (/^[-*]\s/.test(t)) {
+          return <div key={i} className="flex gap-2"><span className="text-maroon">•</span><span>{boldify(t.replace(/^[-*]\s/, ""))}</span></div>;
+        }
+        return <p key={i}>{boldify(t)}</p>;
+      })}
+    </div>
+  );
+}
+
+/* One-tap AI weekly recap (Groq/Claude coach), grounded in the user's data. */
+function WeeklyRecap() {
+  const [recap, setRecap] = useState(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const generate = async () => {
+    setLoading(true); setError("");
+    try {
+      const { data } = await api.get("/coach/recap");
+      if (data.configured === false) setError(data.recap);
+      else setRecap(data.recap);
+    } catch {
+      setError("Couldn't generate a recap right now — try again in a moment.");
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-maroon" /> Weekly recap
+        </h3>
+        {(recap || error) && !loading && (
+          <button onClick={generate} className="text-[11px] text-maroon hover:underline">Refresh</button>
+        )}
+      </div>
+      {!recap && !error && !loading && (
+        <div className="text-center py-3">
+          <p className="text-sm text-muted-foreground mb-3">An AI summary of your week — wins, watch-outs, and what to focus on next.</p>
+          <Button size="sm" onClick={generate} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
+            <Sparkles className="h-3.5 w-3.5 mr-1.5" /> Generate recap
+          </Button>
+        </div>
+      )}
+      {loading && <p className="text-sm text-muted-foreground py-3 text-center animate-pulse">Coach is reviewing your week…</p>}
+      {error && !loading && <p className="text-sm text-muted-foreground py-1">{error}</p>}
+      {recap && !loading && <RecapText text={recap} />}
+    </Card>
   );
 }
 

@@ -1999,6 +1999,40 @@ async def coach_chat(payload: CoachChatIn, user=Depends(get_current_user)):
     return {"configured": True, "provider": provider, "reply": reply, "sources": sources}
 
 
+RECAP_SYSTEM = (
+    "You are CG's LifeOS AI Coach writing the user's weekly training recap.\n"
+    "Using ONLY their logged data below, write a short, motivating recap:\n"
+    "- Open with one line on how the week went.\n"
+    "- **Wins**: workouts done, total volume, and any PRs — use their real numbers and bold them.\n"
+    "- **Watch**: any plateau/deload flags or clearly undertrained muscles.\n"
+    "- **Next week**: one concrete focus.\n"
+    "Keep it under 150 words, use short bullets, be specific to their numbers. "
+    "If there is little data this week, say so warmly and give one first step."
+)
+
+
+@api.get("/coach/recap")
+async def coach_recap(user=Depends(get_current_user)):
+    """One-tap AI weekly recap grounded in the user's logged data."""
+    provider = coach_provider()
+    if not provider:
+        return {"configured": False, "recap": "Connect the AI coach (set GROQ_API_KEY) to get weekly recaps."}
+    ctx = await build_user_context(user)
+    system = f"{RECAP_SYSTEM}\n\n# The user's data\n{ctx}"
+    messages = [{"role": "user", "content": "Write my training recap for the past week."}]
+    try:
+        if provider == "groq":
+            recap = await call_groq(system, messages)
+        else:
+            client = get_anthropic()
+            resp = await client.messages.create(model=COACH_MODEL, max_tokens=600, system=system, messages=messages)
+            recap = "".join(b.text for b in resp.content if b.type == "text").strip()
+    except Exception as e:
+        logger.exception("coach recap failed")
+        raise HTTPException(502, f"AI request failed: {e}")
+    return {"configured": True, "provider": provider, "recap": recap}
+
+
 app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
