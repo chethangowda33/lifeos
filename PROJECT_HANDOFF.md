@@ -54,12 +54,12 @@ LifeOS = personal life-tracking app for me (chethan). Workout module goal: match
 ## 8. UI enhancement batch (in progress, 2026-07-11) — user asked to "do all this"
 Premium visual overhaul. Order + status:
 1. **Workout empty state → recommendations (DONE, verified, committed).** `Workout.jsx`: replaced "Nothing queued yet" with goal chips (RECO_GOALS: muscle/strength/cut/fit → program.goal) + recommendation hero (best beginner program in goal, week-day preview via WEEK_PRESETS) + 2 more-program cards. Reuses `openProgram` flow. Falls back to simple prompt if no programs. Verified in browser: all 4 goals surface different programs, Start opens ProgramDetailDialog.
-2. **Dashboard "today" header** — greeting + weekly-goal ring (workouts done/target) + streak + muscle recovery status + today's plan + quick stat tiles (protein/sleep/water). Uses existing data (`/workouts`, `/workouts/muscle-volume` recovery fields, body-metrics, nutrition/sleep). TODO.
-3. **Streak & weekly goal ring** — workout streak + longest + weekly ring. TODO.
-4. **Recovery-based suggestion** — surface muscle recovery ("chest ready") from muscle-volume data. TODO.
+2. **Dashboard "today" band (DONE #2+#3+#4 merged, verified, pushed).** `Dashboard.jsx`: new `TodayHero` under greeting — SVG weekly-goal ring (weekCount/target=4), streak line, muscle recovery chips (ready/recovering/worked-today) from `/workouts/muscle-volume` (recovery field: fresh/worked/recovering). Chips only render when recent training exists. Verified with a logged workout.
+3. **Streak & weekly goal ring** — DONE (part of #2 TodayHero).
+4. **Recovery-based suggestion** — DONE (recovery chips in #2 TodayHero).
 5. **PR trophy shelf** — page/section of all PRs as badges (data in pr_events/personal_records). TODO.
 6. **Quick-add on dashboard** — one-tap log water/weight/start next. TODO.
-7. **Progress analytics page** — charts (Recharts already installed): bodyweight line (body-metrics/history), weekly volume bars, muscle-balance radar, stat tiles, e1RM lines, time-range 4W/3M/1Y. TODO.
+7. **Progress analytics page (DONE core, verified, pushed).** Added `VolumeTrend` Recharts area chart (weekly kg volume, last 10 weeks — progressive overload). Note: bodyweight is NOT a time-series metric (lives in profile, not body_metrics); body_metrics keys are body_fat/muscle_mass/bmi/bmr etc. Muscle balance already covered by existing muscle-volume bars + MuscleHeatmap. Optional future: e1RM-per-lift lines, time-range selector, body_fat trend.
 8. **Every empty state redone** — Nutrition/Habits/Journal/Sleep get the same treatment. TODO.
 9. **Post-workout moment** — animated PR reveal + confetti on finish (share card already exists). TODO.
 10. **Weekly recap** — AI Sunday digest. TODO.
