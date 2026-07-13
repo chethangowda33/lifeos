@@ -14,7 +14,7 @@ import {
 import {
   Plus, Search, Trash2, Play, Dumbbell, ArrowUpRight, Layers,
   ArrowUp, ArrowDown, Settings2, ChevronDown, ChevronRight, MoreVertical, ArrowLeft, ClipboardList, Folder,
-  Home, Building2, HeartPulse,
+  Home, Building2, HeartPulse, Sparkles, Flame, Zap,
 } from "lucide-react";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -33,6 +33,21 @@ const EXPLORE_CATEGORIES = [
   { key: "beginner", label: "Beginner", icon: Play, test: (p) => p.level === "beginner" },
   { key: "advanced", label: "Advanced", icon: Layers, test: (p) => p.level === "advanced" },
 ];
+
+// Goal filter chips for the recommendation empty state — map friendly goals to program.goal values.
+const RECO_GOALS = [
+  { key: "muscle", label: "Muscle", icon: Dumbbell, goals: ["hypertrophy", "aesthetic"] },
+  { key: "strength", label: "Strength", icon: Zap, goals: ["strength"] },
+  { key: "cut", label: "Lose fat", icon: Flame, goals: ["cut"] },
+  { key: "fit", label: "Stay fit", icon: HeartPulse, goals: ["general"] },
+];
+// Which weekdays a plan lands on, by days-per-week — for the "your week" preview.
+const WEEK_PRESETS = {
+  1: ["Mon"], 2: ["Mon", "Thu"], 3: ["Mon", "Wed", "Fri"],
+  4: ["Mon", "Tue", "Thu", "Fri"], 5: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  6: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+};
+const equipIcon = (equipment) => (equipment === "bodyweight" ? Home : Dumbbell);
 
 export default function Workout() {
   const navigate = useNavigate();
@@ -228,6 +243,8 @@ export default function Workout() {
         plans={plans}
         routines={routines}
         workouts={workouts}
+        programs={programs}
+        onOpenProgram={openProgram}
         onStartDay={(planId, dayIdx) => navigate(`/workout/session/plan/${planId}/${dayIdx}`)}
         onStartRoutine={(id) => navigate(`/workout/session/${id}`)}
         onCreate={() => setBuilderOpen(true)}
@@ -429,8 +446,9 @@ function WeekStrip({ workouts }) {
 }
 
 /* "Next up" hero — the app picks today's workout (most-rested plan day). */
-function HeroCard({ plans, routines, workouts, onStartDay, onStartRoutine, onCreate, onExplore }) {
+function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate, onExplore }) {
   const [pickOpen, setPickOpen] = useState(false);
+  const [goalKey, setGoalKey] = useState(null); // recommendation goal filter (empty state)
 
   const trainedToday = (workouts || []).some(
     (w) => new Date(w.created_at).toDateString() === new Date().toDateString(),
@@ -459,20 +477,115 @@ function HeroCard({ plans, routines, workouts, onStartDay, onStartRoutine, onCre
   };
 
   if (!target) {
-    return (
-      <Card className="p-8 text-center border-dashed">
-        <Dumbbell className="h-8 w-8 mx-auto text-maroon" />
-        <h3 className="mt-3 font-semibold">Nothing queued yet</h3>
-        <p className="text-sm text-muted-foreground mt-1 mb-4">Create a routine or save a ready-made program.</p>
-        <div className="flex gap-2 justify-center">
+    const activeGoal = RECO_GOALS.find((g) => g.key === goalKey);
+    const pool = activeGoal ? programs.filter((p) => activeGoal.goals.includes(p.goal)) : programs;
+    const recommended = pool.find((p) => p.level === "beginner") || pool[0] || programs[0];
+    const more = (recommended ? pool.filter((p) => p.id !== recommended.id) : []).slice(0, 2);
+    const weekDays = recommended ? WEEK_PRESETS[recommended.routines?.length] || [] : [];
+
+    // No programs loaded at all — fall back to the simple prompt.
+    if (!recommended) {
+      return (
+        <Card className="p-8 text-center border-dashed">
+          <Dumbbell className="h-8 w-8 mx-auto text-maroon" />
+          <h3 className="mt-3 font-semibold">Nothing queued yet</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">Create a routine to get started.</p>
           <Button size="sm" onClick={onCreate} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
             <Plus className="h-3.5 w-3.5 mr-1.5" /> New routine
           </Button>
-          <Button size="sm" variant="outline" onClick={onExplore}>
-            <Search className="h-3.5 w-3.5 mr-1.5" /> Explore
-          </Button>
+        </Card>
+      );
+    }
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-xs text-muted-foreground mb-2">What&apos;s your goal?</p>
+          <div className="flex gap-2">
+            {RECO_GOALS.map((g) => {
+              const active = g.key === goalKey;
+              return (
+                <button
+                  key={g.key}
+                  onClick={() => setGoalKey(active ? null : g.key)}
+                  className={`flex-1 flex flex-col items-center gap-1.5 rounded-xl border px-2 py-2.5 text-[11px] transition ${
+                    active
+                      ? "bg-maroon text-white border-transparent"
+                      : "border-border text-muted-foreground hover:border-[hsl(var(--maroon)/0.5)]"
+                  }`}
+                >
+                  <g.icon className="h-4 w-4" />
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </Card>
+
+        <Card className="relative overflow-hidden p-5 border-[hsl(var(--maroon)/0.35)]">
+          <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-maroon" />
+          <div className="flex items-center gap-1.5 mb-2">
+            <Sparkles className="h-3 w-3 text-maroon" />
+            <span className="text-[10px] tracking-widest uppercase text-maroon">Recommended for you</span>
+          </div>
+          <h3 className="text-lg font-semibold leading-snug">{recommended.name}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5 mb-3 line-clamp-2 leading-relaxed">{recommended.description}</p>
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            <Badge variant="outline" className="text-[10px] capitalize">{recommended.level}</Badge>
+            <Badge variant="outline" className="text-[10px]">{recommended.routines?.length || 0} days/wk</Badge>
+            <Badge variant="outline" className="text-[10px]">{recommended.duration_weeks} weeks</Badge>
+            <Badge variant="outline" className="text-[10px] capitalize">{recommended.equipment}</Badge>
+          </div>
+          {weekDays.length > 0 && (
+            <div className="flex items-center gap-1.5 mb-4">
+              <span className="text-[10px] text-muted-foreground mr-0.5">Your week</span>
+              {weekDays.map((d) => (
+                <span key={d} className="text-[10px] px-2 py-0.5 rounded bg-maroon text-white">{d}</span>
+              ))}
+            </div>
+          )}
+          <Button
+            size="sm"
+            onClick={() => onOpenProgram?.(recommended.id)}
+            className="w-full bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
+          >
+            Start this plan
+          </Button>
+        </Card>
+
+        {more.length > 0 && (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">More programs</span>
+              <button onClick={onExplore} className="text-[11px] text-maroon hover:underline">See all {programs.length}</button>
+            </div>
+            <div className="space-y-2">
+              {more.map((p) => {
+                const EqIcon = equipIcon(p.equipment);
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => onOpenProgram?.(p.id)}
+                    className="w-full flex items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:border-[hsl(var(--maroon)/0.5)] transition"
+                  >
+                    <span className="h-9 w-9 rounded-lg bg-[hsl(var(--maroon)/0.12)] flex items-center justify-center shrink-0">
+                      <EqIcon className="h-4 w-4 text-maroon" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <Badge variant="secondary" className="text-[9px] capitalize">{p.level}</Badge>
+                        <span className="text-[10px] text-muted-foreground capitalize">{p.equipment} · {p.duration_weeks} wks</span>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
     );
   }
 
