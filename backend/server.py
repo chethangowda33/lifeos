@@ -405,7 +405,36 @@ async def require_admin(user=Depends(get_current_user)) -> Dict[str, Any]:
 async def admin_list_users(user=Depends(require_admin)):
     """Account management for the admin: who has an account, role, signup date."""
     docs = await db.users.find({}, {"password_hash": 0}).to_list(200)
-    return [serialize_user(d) for d in docs]
+    # Attach each user's workout count so the admin sees who's actually active.
+    counts = await db.workout_sessions.aggregate(
+        [{"$group": {"_id": "$user_id", "n": {"$sum": 1}}}]
+    ).to_list(1000)
+    by_uid = {c["_id"]: c["n"] for c in counts}
+    out = []
+    for d in docs:
+        u = serialize_user(d)
+        u["workout_count"] = by_uid.get(str(d["_id"]), 0)
+        out.append(u)
+    return out
+
+
+@api.get("/admin/stats")
+async def admin_stats(user=Depends(require_admin)):
+    """App-wide overview for the admin dashboard."""
+    week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    total_users = await db.users.count_documents({})
+    admins = await db.users.count_documents({"role": "admin"})
+    total_workouts = await db.workout_sessions.count_documents({})
+    workouts_this_week = await db.workout_sessions.count_documents({"created_at": {"$gte": week_ago}})
+    active_uids = await db.workout_sessions.distinct("user_id", {"created_at": {"$gte": week_ago}})
+    return {
+        "total_users": total_users,
+        "admins": admins,
+        "members": total_users - admins,
+        "total_workouts": total_workouts,
+        "workouts_this_week": workouts_this_week,
+        "active_users_this_week": len(active_uids),
+    }
 
 
 @api.put("/auth/profile")

@@ -19,6 +19,7 @@ import ExerciseDetail from "@/pages/ExerciseDetail";
 import BodyMetrics from "@/pages/BodyMetrics";
 import Progress from "@/pages/Progress";
 import Coach from "@/pages/Coach";
+import Admin from "@/pages/Admin";
 import Placeholder from "@/pages/Placeholder";
 
 function App() {
@@ -40,6 +41,7 @@ function App() {
               <Route path="/workout/session/:routineId" element={<WorkoutSession />} />
               <Route path="/body-metrics" element={<BodyMetrics />} />
               <Route path="/progress" element={<Progress />} />
+              <Route path="/admin" element={<Admin />} />
               <Route path="/nutrition" element={<Placeholder title="Nutrition" description="Track macros, meals and water." icon={Apple} />} />
               <Route path="/habits" element={<Placeholder title="Habits" description="Daily routines, streaks and consistency." icon={ListChecks} />} />
               <Route path="/coach" element={<Coach />} />

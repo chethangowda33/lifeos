@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, BookOpen, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check,
+  Sparkles, BookOpen, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -23,6 +23,9 @@ const NAV_ITEMS = [
   { to: "/sleep", label: "Sleep", icon: Moon, testId: NAV.itemSleep },
   { to: "/progress", label: "Progress", icon: TrendingUp, testId: NAV.itemProgress },
 ];
+
+// Shown in the sidebar only for admin accounts.
+const ADMIN_ITEM = { to: "/admin", label: "Admin", icon: Shield };
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -52,7 +55,7 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 px-3 space-y-1">
-          {NAV_ITEMS.map(({ to, label, icon: Icon, testId }) => (
+          {(user?.role === "admin" ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS).map(({ to, label, icon: Icon, testId }) => (
             <NavLink
               key={to}
               to={to}
