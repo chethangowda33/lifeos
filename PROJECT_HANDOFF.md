@@ -66,5 +66,12 @@ Premium visual overhaul. Order + status:
 11. **First-run onboarding** — 3 questions (goal/experience/days) → auto-recommend plan + seed habits. TODO.
 - Rules for this batch: use `--maroon`/CSS-var tokens (NOT hardcoded colors — accent is user-themed, currently cyan), minimal edits, reuse existing data/flows, verify each in browser, commit+push each (auto-deploys). Mockups were shown & approved for #1, #2, #7.
 
+### Extra features added on user request (2026-07-11)
+- **Swipe-to-dismiss recommendations (DONE, verified, pushed).** `components/SwipeToDismiss.jsx` (framer-motion `drag`, already installed) + X button. Wraps hero + more-program cards in Workout empty state. Dismissed program ids in localStorage `lifeos:dismissed-programs`, filtered from recommendations; hero advances to next; "Show them again" reset when all dismissed. Verified dismiss + persistence across reload.
+- **Admin-only panel (DONE, verified, pushed).** User picked "Users panel" + "App stats" (+ an unspecified "Something else" — ASK USER what it was). Backend: `GET /admin/stats` (total_users/members/active_this_week/total_workouts/workouts_this_week) + `workout_count` on `/admin/users`. Frontend: `pages/Admin.jsx` (stat tiles + accounts list), route `/admin`. Triple-gated: nav link only for role=admin (Layout.jsx `ADMIN_ITEM`), route `<Navigate>` redirect for non-admins, API 403. Verified admin sees it, regular user blocked all 3 ways. 39 tests pass.
+- **NOTE for #8:** Nutrition/Habits/Journal/Sleep are `Placeholder` components (not built) — "redo their empty states" actually means BUILDING those pages. Bigger scope than a visual tweak.
+- **AI coach model:** prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()` returns "groq"; `GROQ_MODEL` default `llama-3.3-70b-versatile`). Falls back to Claude if only `ANTHROPIC_API_KEY` set.
+- **Prod admin accounts:** `cg3@lifeos.com` (pw `test1234`, migrated) + `chethangowda98654@gmail.com` (pw = ADMIN_PASSWORD env on Render, not recoverable — hashed). Both role=admin on Atlas.
+
 ## 9. Still pending (pre-UI-batch)
 - **PWA / offline logging** — manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Now possible (HTTPS live). Do after UI batch.
