@@ -20,6 +20,7 @@ import BodyMetrics from "@/pages/BodyMetrics";
 import Progress from "@/pages/Progress";
 import Coach from "@/pages/Coach";
 import Admin from "@/pages/Admin";
+import Habits from "@/pages/Habits";
 import Placeholder from "@/pages/Placeholder";
 
 function App() {
@@ -43,7 +44,7 @@ function App() {
               <Route path="/progress" element={<Progress />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/nutrition" element={<Placeholder title="Nutrition" description="Track macros, meals and water." icon={Apple} />} />
-              <Route path="/habits" element={<Placeholder title="Habits" description="Daily routines, streaks and consistency." icon={ListChecks} />} />
+              <Route path="/habits" element={<Habits />} />
               <Route path="/coach" element={<Coach />} />
               <Route path="/journal" element={<Placeholder title="Journal" description="Daily notes, reflections, mood." icon={BookOpen} />} />
               <Route path="/sleep" element={<Placeholder title="Sleep" description="Recovery and sleep quality." icon={Moon} />} />

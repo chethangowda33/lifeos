@@ -255,6 +255,29 @@ class BodyMetricIn(BaseModel):
     value: float
 
 
+class HabitIn(BaseModel):
+    name: str
+    emoji: str = "✅"
+    type: str = "check"  # check | count
+    target: Optional[float] = None  # daily target for count habits
+    unit: str = ""
+    model_config = {"extra": "ignore"}
+
+
+class HabitLogIn(BaseModel):
+    date: Optional[str] = None  # YYYY-MM-DD; defaults to today
+    value: Optional[float] = None  # count habits set this value; check habits toggle
+
+
+class SleepLogIn(BaseModel):
+    date: Optional[str] = None  # night's date (YYYY-MM-DD); defaults to today
+    hours: float
+    quality: Optional[int] = None  # 1–5
+    bedtime: str = ""
+    wake_time: str = ""
+    model_config = {"extra": "ignore"}
+
+
 class WorkoutSetIn(BaseModel):
     set_type: str = "working"  # working | warmup | dropset | failure | amrap
     kg: Optional[float] = None
@@ -956,6 +979,150 @@ async def clear_metric_logs(metric: str, user=Depends(get_current_user)):
         raise HTTPException(400, "BMI and BMR are always auto-computed; nothing to clear")
     res = await db.body_metrics.delete_many({"user_id": str(user["_id"]), "metric": metric})
     return {"deleted": res.deleted_count}
+
+
+# ── HABITS ────────────────────────────────────────────────────────────────────
+def _today_str() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+@api.get("/habits")
+async def list_habits(user=Depends(get_current_user)):
+    """Active habits with today's status, current streak, and recent history (for the heatmap)."""
+    uid = str(user["_id"])
+    habits = await db.habits.find({"user_id": uid, "archived": {"$ne": True}}).sort("created_at", 1).to_list(200)
+    ids = [str(h["_id"]) for h in habits]
+    logs = await db.habit_logs.find({"user_id": uid, "habit_id": {"$in": ids}}).to_list(10000)
+    by_habit: Dict[str, Dict[str, Any]] = {}
+    for l in logs:
+        by_habit.setdefault(l["habit_id"], {})[l["date"]] = l
+    today = _today_str()
+    out = []
+    for h in habits:
+        hid = str(h["_id"])
+        hlogs = by_habit.get(hid, {})
+
+        def done_on(d: str) -> bool:
+            l = hlogs.get(d)
+            if not l:
+                return False
+            if h.get("type") == "count":
+                return (l.get("value") or 0) >= (h.get("target") or 1)
+            return bool(l.get("completed"))
+
+        # streak: consecutive completed days ending today (or yesterday if today not yet done)
+        streak = 0
+        cur = datetime.now(timezone.utc).date()
+        if not done_on(cur.isoformat()):
+            cur = cur - timedelta(days=1)
+        while done_on(cur.isoformat()):
+            streak += 1
+            cur = cur - timedelta(days=1)
+
+        today_log = hlogs.get(today, {})
+        history = {d: True for d in hlogs if done_on(d)}
+        out.append({
+            "id": hid, "name": h["name"], "emoji": h.get("emoji", "✅"),
+            "type": h.get("type", "check"), "target": h.get("target"), "unit": h.get("unit", ""),
+            "today_value": today_log.get("value"),
+            "today_done": done_on(today),
+            "streak": streak,
+            "history": history,
+        })
+    return out
+
+
+@api.post("/habits")
+async def create_habit(payload: HabitIn, user=Depends(get_current_user)):
+    doc = {
+        "user_id": str(user["_id"]),
+        "name": payload.name.strip() or "Habit",
+        "emoji": payload.emoji or "✅",
+        "type": payload.type if payload.type in ("check", "count") else "check",
+        "target": payload.target,
+        "unit": payload.unit,
+        "archived": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    res = await db.habits.insert_one(doc)
+    doc["id"] = str(res.inserted_id)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/habits/{habit_id}")
+async def update_habit(habit_id: str, payload: HabitIn, user=Depends(get_current_user)):
+    upd = {"name": payload.name.strip(), "emoji": payload.emoji, "type": payload.type,
+           "target": payload.target, "unit": payload.unit}
+    res = await db.habits.update_one({"_id": ObjectId(habit_id), "user_id": str(user["_id"])}, {"$set": upd})
+    if not res.matched_count:
+        raise HTTPException(404, "Habit not found")
+    return {"ok": True}
+
+
+@api.delete("/habits/{habit_id}")
+async def delete_habit(habit_id: str, user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    await db.habits.delete_one({"_id": ObjectId(habit_id), "user_id": uid})
+    await db.habit_logs.delete_many({"habit_id": habit_id, "user_id": uid})
+    return {"ok": True}
+
+
+@api.post("/habits/{habit_id}/log")
+async def log_habit(habit_id: str, payload: HabitLogIn, user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    habit = await db.habits.find_one({"_id": ObjectId(habit_id), "user_id": uid})
+    if not habit:
+        raise HTTPException(404, "Habit not found")
+    d = payload.date or _today_str()
+    key = {"user_id": uid, "habit_id": habit_id, "date": d}
+    if habit.get("type") == "count":
+        await db.habit_logs.update_one(key, {"$set": {"value": payload.value or 0}}, upsert=True)
+    else:
+        existing = await db.habit_logs.find_one(key)
+        new_val = not (existing and existing.get("completed"))
+        await db.habit_logs.update_one(key, {"$set": {"completed": new_val}}, upsert=True)
+    return {"ok": True}
+
+
+# ── SLEEP ─────────────────────────────────────────────────────────────────────
+@api.get("/sleep")
+async def list_sleep(user=Depends(get_current_user)):
+    """Recent nights + summary stats (avg hours, avg quality, last night)."""
+    uid = str(user["_id"])
+    docs = await db.sleep_logs.find({"user_id": uid}).sort("date", -1).to_list(60)
+    for d in docs:
+        d["id"] = str(d.pop("_id"))
+    recent = docs[:7]
+    hours = [d["hours"] for d in recent if d.get("hours")]
+    quals = [d["quality"] for d in recent if d.get("quality")]
+    stats = {
+        "avg_hours": round(sum(hours) / len(hours), 1) if hours else None,
+        "avg_quality": round(sum(quals) / len(quals), 1) if quals else None,
+        "last_hours": docs[0]["hours"] if docs else None,
+        "nights_logged": len(docs),
+    }
+    return {"logs": docs, "stats": stats}
+
+
+@api.post("/sleep")
+async def log_sleep(payload: SleepLogIn, user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    d = payload.date or _today_str()
+    doc = {
+        "user_id": uid, "date": d, "hours": payload.hours,
+        "quality": payload.quality, "bedtime": payload.bedtime, "wake_time": payload.wake_time,
+    }
+    await db.sleep_logs.update_one({"user_id": uid, "date": d}, {"$set": doc}, upsert=True)
+    saved = await db.sleep_logs.find_one({"user_id": uid, "date": d})
+    saved["id"] = str(saved.pop("_id"))
+    return saved
+
+
+@api.delete("/sleep/{sleep_id}")
+async def delete_sleep(sleep_id: str, user=Depends(get_current_user)):
+    await db.sleep_logs.delete_one({"_id": ObjectId(sleep_id), "user_id": str(user["_id"])})
+    return {"ok": True}
 
 
 # ── WORKOUT SESSIONS ──────────────────────────────────────────────────────────
@@ -1698,6 +1865,9 @@ async def on_startup():
     await db.progression_states.create_index([("user_id", 1), ("exercise_id", 1)], unique=True)
     await db.exercise_notes.create_index([("user_id", 1), ("exercise_id", 1)], unique=True)
     await db.pr_events.create_index([("user_id", 1), ("created_at", -1)])
+    await db.habits.create_index([("user_id", 1), ("created_at", 1)])
+    await db.habit_logs.create_index([("user_id", 1), ("habit_id", 1), ("date", 1)], unique=True)
+    await db.sleep_logs.create_index([("user_id", 1), ("date", 1)], unique=True)
     await db.knowledge.create_index([("title", 1)])
     # Seed — skipped when seed data hasn't changed since the last boot
     sig = _seed_signature()
