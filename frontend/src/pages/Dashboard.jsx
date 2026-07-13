@@ -56,6 +56,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ total_workouts: 0, total_volume: 0, total_sets: 0, total_duration: 0 });
   const [routines, setRoutines] = useState([]);
   const [bmi, setBmi] = useState(null);
+  const [recovery, setRecovery] = useState([]); // muscle recovery status
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,17 +64,19 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m] = await Promise.all([
+        const [w, s, r, m, mv] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
           api.get("/body-metrics/latest").catch(() => ({ data: {} })),
+          api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
         ]);
         if (!alive) return;
         setWorkouts(w.data || []);
         setStats(s.data || {});
         setRoutines(r.data || []);
         setBmi(m.data?.bmi?.value ?? null);
+        setRecovery(mv.data || []);
       } finally {
         if (alive) setLoading(false);
       }
@@ -107,6 +110,15 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Today band — weekly goal ring + streak + muscle recovery */}
+      <TodayHero
+        weekCount={derived.weekCount}
+        target={4}
+        streak={derived.streak}
+        recovery={recovery}
+        loading={loading}
+      />
 
       {/* Stat row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -164,6 +176,70 @@ export default function Dashboard() {
       {/* Muscle focus */}
       <MuscleFocus muscles={derived.muscles} loading={loading} />
     </div>
+  );
+}
+
+/* Today band: weekly goal ring, streak, and muscle recovery chips. */
+function TodayHero({ weekCount, target, streak, recovery, loading }) {
+  const pct = Math.min(1, target ? weekCount / target : 0);
+  const R = 26, C = 2 * Math.PI * R;
+  const chips = (recovery || []).slice(0, 6).map((m) => {
+    const ready = m.recovery === "fresh";
+    const worked = m.recovery === "worked";
+    return {
+      name: m.muscle_group,
+      label: ready ? "ready" : worked ? "worked today" : "recovering",
+      cls: ready
+        ? "text-emerald-400 bg-emerald-500/10"
+        : worked
+          ? "text-muted-foreground bg-muted"
+          : "text-amber-400 bg-amber-500/10",
+    };
+  });
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-5">
+        <div className="relative shrink-0">
+          <svg width="72" height="72" viewBox="0 0 72 72">
+            <circle cx="36" cy="36" r={R} fill="none" stroke="hsl(var(--muted))" strokeWidth="7" />
+            <circle
+              cx="36" cy="36" r={R} fill="none" stroke="hsl(var(--maroon))" strokeWidth="7"
+              strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)}
+              transform="rotate(-90 36 36)" className="transition-all"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className="text-lg font-semibold leading-none">
+              {loading ? "—" : weekCount}<span className="text-xs text-muted-foreground">/{target}</span>
+            </span>
+            <span className="text-[9px] text-muted-foreground">this week</span>
+          </div>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Flame className={`h-4 w-4 ${streak > 0 ? "text-orange-400" : "text-muted-foreground"}`} />
+            <span className="font-semibold">{streak}-day streak</span>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {weekCount >= target
+              ? "Weekly goal hit — nice work."
+              : `${Math.max(0, target - weekCount)} more to hit your weekly goal.`}
+          </p>
+        </div>
+      </div>
+      {chips.length > 0 && (
+        <div className="mt-4 pt-4 border-t border-border">
+          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Recovery</div>
+          <div className="flex flex-wrap gap-1.5">
+            {chips.map((c) => (
+              <span key={c.name} className={`text-[11px] px-2.5 py-1 rounded-full capitalize ${c.cls}`}>
+                {c.name} · {c.label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
   );
 }
 
