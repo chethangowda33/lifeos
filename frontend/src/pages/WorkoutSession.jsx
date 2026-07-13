@@ -23,7 +23,20 @@ import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import ShareWorkoutButton from "@/components/ShareWorkoutCard";
 import IntervalTimer from "@/components/IntervalTimer";
 import ExercisePicker from "@/components/ExercisePicker";
+import confetti from "canvas-confetti";
 import { SESSION } from "@/constants/testIds";
+
+// Read the themed accent color as hex (for confetti particles).
+function accentHex() {
+  const probe = document.createElement("span");
+  probe.style.color = "hsl(var(--maroon))";
+  probe.style.display = "none";
+  document.body.appendChild(probe);
+  const rgb = getComputedStyle(probe).color;
+  document.body.removeChild(probe);
+  const m = rgb.match(/\d+/g) || [200, 20, 40];
+  return "#" + m.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
+}
 
 // Muscle groups that are time-based (no kg/reps — use duration)
 const TIME_BASED = new Set(["cardio", "core"]);
@@ -222,6 +235,20 @@ export default function WorkoutSession() {
       .catch(() => {});
   };
   useEffect(() => { exercises.forEach((ex) => ensureRecords(ex.exercise_id)); }, [exercises]);
+
+  // Celebrate on the post-workout summary — extra bursts when PRs were set.
+  useEffect(() => {
+    if (!summary) return;
+    let cancelled = false;
+    const colors = [accentHex(), "#f5a623", "#ffffff"];
+    const bursts = summary.prs?.length ? 3 : 1;
+    for (let i = 0; i < bursts; i++) {
+      setTimeout(() => {
+        if (!cancelled) confetti({ particleCount: 80, spread: 75, startVelocity: 42, origin: { y: 0.65 }, colors });
+      }, i * 300);
+    }
+    return () => { cancelled = true; };
+  }, [summary]);
 
   // Load a plan day, a routine, or start empty — then offer to resume any saved session
   useEffect(() => {
