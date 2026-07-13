@@ -24,6 +24,10 @@ import { WORKOUT, SESSION } from "@/constants/testIds";
 import ExercisePicker from "@/components/ExercisePicker";
 import ProgramDetailDialog from "@/components/ProgramDetailDialog";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
+import SwipeToDismiss from "@/components/SwipeToDismiss";
+import { AnimatePresence } from "framer-motion";
+
+const DISMISSED_KEY = "lifeos:dismissed-programs";
 
 const EXPLORE_CATEGORIES = [
   { key: "home", label: "At home", icon: Home, test: (p) => p.equipment === "bodyweight" },
@@ -449,6 +453,16 @@ function WeekStrip({ workouts }) {
 function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate, onExplore }) {
   const [pickOpen, setPickOpen] = useState(false);
   const [goalKey, setGoalKey] = useState(null); // recommendation goal filter (empty state)
+  const [dismissed, setDismissed] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(DISMISSED_KEY)) || []; } catch { return []; }
+  });
+  const dismissProgram = (id) => {
+    setDismissed((prev) => {
+      const next = [...new Set([...prev, id])];
+      try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const trainedToday = (workouts || []).some(
     (w) => new Date(w.created_at).toDateString() === new Date().toDateString(),
@@ -478,21 +492,36 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
 
   if (!target) {
     const activeGoal = RECO_GOALS.find((g) => g.key === goalKey);
-    const pool = activeGoal ? programs.filter((p) => activeGoal.goals.includes(p.goal)) : programs;
-    const recommended = pool.find((p) => p.level === "beginner") || pool[0] || programs[0];
+    const inGoal = activeGoal ? programs.filter((p) => activeGoal.goals.includes(p.goal)) : programs;
+    const pool = inGoal.filter((p) => !dismissed.includes(p.id)); // hide swiped-away programs
+    const recommended = pool.find((p) => p.level === "beginner") || pool[0] || null;
     const more = (recommended ? pool.filter((p) => p.id !== recommended.id) : []).slice(0, 2);
     const weekDays = recommended ? WEEK_PRESETS[recommended.routines?.length] || [] : [];
 
-    // No programs loaded at all — fall back to the simple prompt.
+    // No recommendation to show — either no programs loaded, or the user dismissed them all.
     if (!recommended) {
+      const allDismissed = dismissed.length > 0 && inGoal.length > 0;
       return (
         <Card className="p-8 text-center border-dashed">
           <Dumbbell className="h-8 w-8 mx-auto text-maroon" />
-          <h3 className="mt-3 font-semibold">Nothing queued yet</h3>
-          <p className="text-sm text-muted-foreground mt-1 mb-4">Create a routine to get started.</p>
-          <Button size="sm" onClick={onCreate} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
-            <Plus className="h-3.5 w-3.5 mr-1.5" /> New routine
-          </Button>
+          <h3 className="mt-3 font-semibold">{allDismissed ? "No more recommendations" : "Nothing queued yet"}</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">
+            {allDismissed ? "You've dismissed them all." : "Create a routine to get started."}
+          </p>
+          <div className="flex gap-2 justify-center">
+            {allDismissed && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => { setDismissed([]); try { localStorage.removeItem(DISMISSED_KEY); } catch { /* ignore */ } }}
+              >
+                Show them again
+              </Button>
+            )}
+            <Button size="sm" onClick={onCreate} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> New routine
+            </Button>
+          </div>
         </Card>
       );
     }
@@ -522,6 +551,7 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
           </div>
         </div>
 
+        <SwipeToDismiss onDismiss={() => dismissProgram(recommended.id)} className="group">
         <Card className="relative overflow-hidden p-5 border-[hsl(var(--maroon)/0.35)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-maroon" />
           <div className="flex items-center gap-1.5 mb-2">
@@ -552,6 +582,7 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
             Start this plan
           </Button>
         </Card>
+        </SwipeToDismiss>
 
         {more.length > 0 && (
           <div>
@@ -559,29 +590,33 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
               <span className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">More programs</span>
               <button onClick={onExplore} className="text-[11px] text-maroon hover:underline">See all {programs.length}</button>
             </div>
+            <p className="text-[10px] text-muted-foreground mb-2">Swipe a card away to hide it.</p>
             <div className="space-y-2">
-              {more.map((p) => {
-                const EqIcon = equipIcon(p.equipment);
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => onOpenProgram?.(p.id)}
-                    className="w-full flex items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:border-[hsl(var(--maroon)/0.5)] transition"
-                  >
-                    <span className="h-9 w-9 rounded-lg bg-[hsl(var(--maroon)/0.12)] flex items-center justify-center shrink-0">
-                      <EqIcon className="h-4 w-4 text-maroon" />
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{p.name}</p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <Badge variant="secondary" className="text-[9px] capitalize">{p.level}</Badge>
-                        <span className="text-[10px] text-muted-foreground capitalize">{p.equipment} · {p.duration_weeks} wks</span>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                  </button>
-                );
-              })}
+              <AnimatePresence initial={false}>
+                {more.map((p) => {
+                  const EqIcon = equipIcon(p.equipment);
+                  return (
+                    <SwipeToDismiss key={p.id} onDismiss={() => dismissProgram(p.id)} className="group">
+                      <button
+                        onClick={() => onOpenProgram?.(p.id)}
+                        className="w-full flex items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:border-[hsl(var(--maroon)/0.5)] transition"
+                      >
+                        <span className="h-9 w-9 rounded-lg bg-[hsl(var(--maroon)/0.12)] flex items-center justify-center shrink-0">
+                          <EqIcon className="h-4 w-4 text-maroon" />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{p.name}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <Badge variant="secondary" className="text-[9px] capitalize">{p.level}</Badge>
+                            <span className="text-[10px] text-muted-foreground capitalize">{p.equipment} · {p.duration_weeks} wks</span>
+                          </div>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mr-5" />
+                      </button>
+                    </SwipeToDismiss>
+                  );
+                })}
+              </AnimatePresence>
             </div>
           </div>
         )}
