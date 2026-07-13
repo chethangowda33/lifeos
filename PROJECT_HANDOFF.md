@@ -65,9 +65,13 @@ Premium visual overhaul. Order + status:
 10. **Weekly AI recap (DONE, verified, pushed).** Backend `GET /coach/recap` reuses `build_user_context` + the LLM (Groq Llama 3.3 70B prod). Frontend `WeeklyRecap` card on Dashboard (generate/refresh button, lightweight bold/bullet renderer `RecapText`). Verified real recap generated.
 11. **First-run onboarding (DONE, verified, pushed).** `components/Onboarding.jsx` — 3-question dialog (goal/experience/days). Shown once from Dashboard when a fresh account (no workouts+routines) and `localStorage lifeos:onboarded` unset. Saves goal → `lifeos:reco-goal`, navigates to /workout; HeroCard seeds its `goalKey` from that. Skipped the "seed habits" part (Habits page is a placeholder). Verified: dialog → answers → /workout with goal pre-selected.
 
-## 10. Remaining after UI batch
+## 10. New feature pages built (2026-07-14)
+- **Habits page (DONE, verified, pushed).** Backend: `habits` + `habit_logs` collections (indexes added); `GET /habits` (each habit with today status, streak, history map), `POST/PUT/DELETE /habits`, `POST /habits/{id}/log` (check=toggle, count=set value). Two types: `check` (toggle) and `count` (target+unit, +/-). Frontend `pages/Habits.jsx` — cards with emoji, streak flame, 14-day dot strip, check/counter controls, add/delete dialog (emoji picker). Route replaces Placeholder. Verified check toggle, count +/-, streak, create.
+- **Sleep page (DONE, verified, pushed).** Backend: `sleep_logs` (unique per user+date, upsert); `GET /sleep` (logs + stats: avg_hours/avg_quality/last/nights), `POST /sleep`, `DELETE /sleep/{id}`. Frontend `pages/Sleep.jsx` — stat tiles, Recharts duration trend (needs ≥2 nights), recent-nights list w/ quality stars, log dialog (bedtime/wake auto-computes hours via `hoursBetween`, 1-5 stars). Route replaces Placeholder. Verified log, stats, chart, delete.
+
+## 11. Remaining
 - **PWA / offline logging** — the one big original item left. Manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Needs HTTPS (live now). Not started.
-- Optional future: build Nutrition/Habits/Journal/Sleep pages (currently placeholders); more Progress charts (e1RM lines, time-range selector).
+- Optional future: build **Nutrition** (user excluded it) and **Journal** pages (still `Placeholder`); more Progress charts (e1RM lines, time-range selector); wire habit/sleep data into the AI coach context + life-score.
 - Rules for this batch: use `--maroon`/CSS-var tokens (NOT hardcoded colors — accent is user-themed, currently cyan), minimal edits, reuse existing data/flows, verify each in browser, commit+push each (auto-deploys). Mockups were shown & approved for #1, #2, #7.
 
 ### Extra features added on user request (2026-07-11)
