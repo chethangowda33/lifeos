@@ -1,91 +1,68 @@
-# LifeOS — Handoff
+# LifeOS — Handoff (current as of 2026-07-14)
 
-## 1. Vision
-LifeOS = personal life-tracking app for me (chethan). Workout module goal: match Hevy Pro's UX (Phase 1), then beat it with an AI progressive-overload/coaching layer (Phase 2). Source spec: `lifeos-workout-upgrade-prompt.md` (repo root). Phase 1 UX parity is done; Phase 2 intelligence layer (progression suggestions, PRs, volume landmarks, plateau/deload detection) is also done and live.
+> Paste this whole file at the start of a new chat. It is complete context — don't re-read old chats.
 
-## 2. Stack
-- Backend: FastAPI + Motor(MongoDB), single file `backend/server.py` (~2000+ lines), Pydantic models inline, JWT cookie auth (`get_current_user`, optional variant `get_optional_user`).
-- Frontend: React 19, CRA+craco, Tailwind, shadcn/ui components in `frontend/src/components/ui/`.
-- DB: Mongo via Docker container `lifeos-mongo`. Start with `docker start lifeos-mongo` (Docker Desktop must be running first).
-- Run backend: `cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8001`
-- Run frontend: normal CRA dev server on :3000.
-- Test login: `cg3@lifeos.com` / `test1234`.
-- Backend tests: `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio` → 39 passing.
+## 1. What LifeOS is
+Personal life-tracking app for me (chethan), going multi-user (me + a friend, invite-only). Started as a Hevy-style workout tracker with an AI progressive-overload layer; now also has habits, sleep, an AI coach, progress analytics, an admin panel, and a health-sync ingest layer. **It is deployed and LIVE.**
 
-## 3. What's built (A–Z)
-- Auth, Dashboard, Body Metrics — untouched, working.
-- **Workout module** (`frontend/src/pages/Workout.jsx`, `WorkoutSession.jsx`, `WorkoutSettings.jsx`, `ExerciseDetail.jsx`):
-  - Routines + multi-day Plans (folders), Explore programs, hero "next up" card, week strip, custom accent theme.
-  - Live session: sets (working/warmup/dropset/failure/amrap), superset grouping, plate calculator, RPE, rest timer with +15/−15 adjust + audio+vibration alert on expiry, inline stopwatch for timed exercises, bodyweight "+Kg" mode, swap-similar-exercise, save-as-routine toggle on finish, post-workout PR celebration dialog.
-  - Exercise picker (`components/ExercisePicker.jsx`): search/filter by muscle+equipment (icons via `MuscleThumb`/`EQUIP_ICON`), **Recent** section (last 6 picked, localStorage key `lifeos:recent-exercises`), **Create custom exercise** inline form → `POST /exercises`.
-  - Exercise detail (`components/ExerciseDetailContent.jsx`, shared by dialog + `/exercise/:id` page): animation, muscle diagram, e1RM/volume charts, PR history, instructions.
-  - Muscle heatmap (`components/MuscleHeatmap.jsx`): body-diagram SVG colored by last-7-day volume, also exports `MuscleThumb` for picker icons. Rendered on Progress page.
-  - Progress page: stat boxes, muscle-volume bars w/ **recovery tag** (worked today / recovering / recovered, from `days_since`/`recovery` fields backend now returns), **WorkoutCalendar** (12-week GitHub-style grid), strength standards, workout history list.
-  - Intelligence: `/exercises/{id}/records`, `/exercises/{id}/history`, `/workouts/muscle-volume` (now includes `last_trained`/`days_since`/`recovery`), `/routines/reorder` (drag-order persisted), progression suggestions surfaced on each exercise card in session ("Suggested: X kg", deload/plateau flags).
+## 2. Stack & how to run locally
+- **Backend:** FastAPI + Motor(MongoDB), single file `backend/server.py` (~2200 lines), Pydantic models inline, JWT cookie auth (`get_current_user`; `get_optional_user`). Token-auth variant for health ingest.
+- **Frontend:** React 19, CRA + craco, Tailwind, shadcn/ui in `frontend/src/components/ui/`. Charts = Recharts. Animation = framer-motion. Confetti = canvas-confetti. Icons = lucide-react.
+- **DB:** Mongo in Docker container `lifeos-mongo`. Start: ensure Docker Desktop running, then `docker start lifeos-mongo`. Quirk: sometimes starts without binding host port 27017 right after Docker boots → `docker restart lifeos-mongo` fixes it.
+- **Run backend:** `cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8001` (kill old :8001 process first).
+- **Run frontend:** CRA dev server on :3000 (`frontend/.env` has `REACT_APP_BACKEND_URL=http://localhost:8001`).
+- **Test login:** `cg3@lifeos.com` / `test1234` (admin).
+- **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio` → **39 passing**.
+- **npm installs:** always use `--legacy-peer-deps` (pre-existing react-day-picker/date-fns@4 peer conflict).
 
-## 4. Pending — 6 ranked items
-1. **PWA / offline logging** — not started. Installable + offline set logging + background sync.
-2. **Apply progression suggestion in one tap** — **DONE, verified end-to-end in browser (2026-07-10).** "Suggested: 15 kg (+2.5)" + Apply button rendered; clicking it filled the working set's kg input with 15. Plateau case hides Apply (verified earlier). Injected test doc deleted from `progression_states`. Note: correct `user_id` for test injections is `str(users._id)` e.g. `6a4665b994cd583b69026da9` for cg3, NOT a numeric uid. Also note: `lifeos-mongo` container sometimes starts without binding host port 27017 right after Docker Desktop boots — `docker restart lifeos-mongo` fixes it.
-3. **Per-exercise persistent notes** — **DONE, verified end-to-end (2026-07-10).** Backend: `exercise_notes` collection (unique index user_id+exercise_id), `GET /exercises/notes` → `{exercise_id: note}` map (registered before `/exercises/{exercise_id}` to avoid route shadowing, next to `/exercises/meta`), `PUT /exercises/{exercise_id}/note` (empty note deletes doc). Frontend `WorkoutSession.jsx`: `exerciseNotes` state fetched with progression; each `ExerciseSessionCard` shows StickyNote line under badges ("Add note" when empty), tap → Textarea, saves on blur (optimistic). Verified: save, auto-show on next session, edit, delete-on-empty; 39 pytest still passing.
-4. **Share / export workout** — **DONE, verified (2026-07-10).** New dep `html-to-image` (installed with `--legacy-peer-deps` — repo has a pre-existing react-day-picker/date-fns@4 peer conflict; always use that flag for installs). New `frontend/src/components/ShareWorkoutCard.jsx`: `ShareWorkoutButton({summary})` renders Share button + off-screen 380px card (brand, title, date, duration/volume/sets, react-body-highlighter muscle models, PRs) → `toPng` → Web Share API w/ file, fallback download. **Must pass `skipFonts: true`** — embedding the cross-origin Google Fonts stylesheet throws SecurityError. Wired into WorkoutSession celebration dialog footer; `setSummary` now also carries `name` + `muscles`. Verified via forced download path: 63KB PNG, correct content (checked visually). Note: in the hidden preview tab html-to-image hangs awaiting `requestAnimationFrame` — env quirk only, shim rAF with setTimeout when testing there.
-5. **Interval/EMOM/HIIT timer** — **DONE, verified (2026-07-10).** New `frontend/src/components/IntervalTimer.jsx` (no new deps): dialog with presets (Tabata 20/10×8, EMOM 10, HIIT 40/20), work/rest/rounds inputs (work min 5s), big countdown, WORK/REST phase badge, round x/N, Pause/Resume/Reset; beeps+vibrates on every transition via `restAlert` (now exported from WorkoutSession.jsx, passed as `onAlert` prop to avoid an import cycle). Opened from Timer icon in session sticky header (`intervalOpen` state). Verified: full 2-round cycle incl. transitions + done state, pause freezes (one in-flight tick may slip ≤1s — accepted), reset.
-6. **Train reminders** — **DONE (in-app scope), verified (2026-07-10).** Backend: `train_reminder_enabled` (default false) + `train_reminder_time` ("18:00") added to `WorkoutSettingsIn` + defaults. Frontend: new `hooks/useTrainReminder.js` called from `Layout.jsx` — checks every 60s; when enabled, time reached, and not yet fired today (localStorage `lifeos:train-reminder-fired`), shows browser Notification "Time to train 🏋️ — {next day} is next in your rotation" (reuses `suggestedDayIndex`, now exported from `pages/Workout.jsx`). Settings UI: "Train reminder" card in WorkoutSettings.jsx (switch requests Notification permission + `<input type=time>`). Verified: settings roundtrip, UI, and notification fire with correct rotation day (stubbed Notification in preview). **Background push (app closed) still needs #1 PWA — service worker + Push API.**
+## 3. Deployment (LIVE)
+- **Frontend:** https://lifeos-nine-eta.vercel.app (Vercel, root=`frontend`, `frontend/.npmrc` has `legacy-peer-deps=true`).
+- **Backend:** https://lifeos-api-g6hq.onrender.com (Render free tier — sleeps after 15 min idle, first hit ~30-50s).
+- **DB:** MongoDB Atlas cluster `lifeos-cluster`.
+- **Wiring:** `frontend/vercel.json` rewrites `/api/*` → Render backend (same-origin proxy → no CORS/cookie issues). `api.js` `API_BASE` is absolute locally, `/api` in prod.
+- **Deploy flow:** `git push` to `main` auto-deploys BOTH Vercel + Render. Full beginner guide in `DEPLOYMENT.md`.
+- **Env vars on Render:** MONGO_URL, DB_NAME=lifeos, JWT_SECRET, FRONTEND_URL, COOKIE_SECURE=true, INVITE_CODE, ADMIN_EMAIL, ADMIN_PASSWORD, GROQ_API_KEY.
+- **Prod admins:** `cg3@lifeos.com`/`test1234` (migrated) + `chethangowda98654@gmail.com` (pw = ADMIN_PASSWORD env, hashed/unrecoverable). Both role=admin.
+- **Prod requirements notes:** `backend/requirements.txt` needs `httpx` + `dnspython` (for mongodb+srv); unused build-breakers (jq etc.) removed. Seeding is skipped on boot when unchanged via `_seed_signature()` (was a ~10 min cold start).
 
-## 5. Rules for next session
-- **MANDATORY at every step:** for every line of code — new or already existing — ask: "can this line/block be replaced with a library (or an already-installed dependency / built-in)?" If yes, use the library instead of hand-written code. Goal: simpler code, fewer lines.
-- Use as few tokens as possible: don't re-read old chats or unrelated files, read only what the current task needs, keep replies short.
-- Follow the user's instructions exactly — nothing extra.
-- Do all 6 one by one, not in parallel.
-- Only touch files required for the current task.
-- Change only the specific lines needed — do not rewrite whole files/components.
-- Keep design simple, no over-engineering, no new dependencies unless clearly necessary.
-- Don't re-read old chat history — this file is complete context.
-- Backend: after any server.py edit, syntax-check (`python -c "import ast; ast.parse(open('server.py',encoding='utf-8').read())"`) before restarting; kill old uvicorn process on :8001 first.
-- Verify each feature end-to-end (curl for API, browser preview for UI) before moving to the next item.
-- Run full pytest suite after backend changes to catch regressions (currently 39 passing).
+## 4. Working rules (follow every step)
+- **Library-first:** for every block of code, ask "can a library / already-installed dep / built-in do this?" If yes, use it. Fewer lines, simpler.
+- **Minimal edits:** change only the lines needed; don't rewrite whole files. Only touch files the task needs.
+- **Keep design simple**, no over-engineering. Use `--maroon` / CSS-var tokens, NEVER hardcode colors (accent is user-themeable — currently cyan).
+- **Few tokens:** don't re-read old chats/unrelated files; keep replies short.
+- Backend: after any `server.py` edit, `python -c "import ast; ast.parse(open('server.py',encoding='utf-8').read())"` before restart; kill old uvicorn first.
+- **Verify each feature end-to-end** (curl for API, browser preview for UI) before moving on. Clean up any test data created on `cg3`. Run pytest after backend changes.
+- Commit + push each finished feature separately (auto-deploys).
 
-## 6. Multi-user + deployment (added 2026-07-10, later session)
-- **Multi-user restriction (DONE, verified):** registration is invite-only when env `INVITE_CODE` is set (unset locally → open, tests unaffected; 39 still passing). `RegisterIn.invite_code` + 403 check in `/auth/register`; Register page has an "Invite code" input (AuthContext.register takes 4th arg). Roles: seeded admin (`ADMIN_EMAIL`, role="admin" — cg3 already admin), all signups role="user"; `require_admin` dependency + `GET /admin/users` (403 for non-admins — verified). `COOKIE_SECURE` now env-driven (`COOKIE_SECURE=true` in prod).
-- **Deploy prep (code-side DONE, actual deploy = user does it):** `frontend/vercel.json` proxies `/api/*` → Render backend (user must replace placeholder host); `api.js` falls back to same-origin `/api` when `REACT_APP_BACKEND_URL` unset (proxy mode). Root `.gitignore` already covers `.env`. Full beginner walkthrough in **`DEPLOYMENT.md`** (repo root): GitHub → Atlas M0 (+ mongodump/restore from the `lifeos-mongo` container) → Render (env table incl. INVITE_CODE, JWT_SECRET, COOKIE_SECURE=true, strong ADMIN_PASSWORD) → Vercel (root `frontend`, no env, `--legacy-peer-deps` install override if build fails) → set FRONTEND_URL back on Render. Not deployed yet — user is doing it themselves following the guide.
+## 5. What's built & LIVE
+**Core (working):** Auth (invite-only when `INVITE_CODE` set), Dashboard, Body Metrics, Workout module, AI Coach, Progress. Roles: admin vs user.
 
-## 7. Deployment status (2026-07-11)
-- **LIVE.** Frontend: `https://lifeos-nine-eta.vercel.app` (Vercel, root=frontend, `.npmrc` legacy-peer-deps). Backend: `https://lifeos-api-g6hq.onrender.com` (Render free, env incl. INVITE_CODE, COOKIE_SECURE=true). DB: MongoDB Atlas (`lifeos-cluster`). Vercel proxies `/api/*`→Render (`frontend/vercel.json`). Verified full chain: login, invite gate, data. Render free tier sleeps after 15min (first hit ~30-50s). Prod requirements fixes: added `httpx`+`dnspython`, removed unused `jq`/etc (build-breaking); seed-skip on boot via `_seed_signature()` (was ~10min cold start). Push to `main` = auto-deploy both.
+**Workout module** (`pages/Workout.jsx`, `WorkoutSession.jsx`, `WorkoutSettings.jsx`, `ExerciseDetail.jsx`):
+- Routines + multi-day Plans, Explore programs (14), hero "next up", week strip, custom accent theme.
+- Live session: set types, supersets, plate calculator, RPE, rest timer (+15/−15, audio+vibrate), inline stopwatch, bodyweight mode, swap exercise, save-as-routine, post-workout PR celebration **+ confetti**.
+- **Apply progression** one-tap, **per-exercise persistent notes** (`exercise_notes`), **share workout image** (`ShareWorkoutCard.jsx`, html-to-image, `skipFonts:true`), **interval/EMOM/HIIT timer** (`IntervalTimer.jsx`).
+- Exercise picker (Recent + create custom), exercise detail (charts/PRs), muscle heatmap.
+- Intelligence: progression suggestions, PRs, volume landmarks, plateau/deload flags.
+- **Empty state = goal-filtered recommendations** (RECO_GOALS → program.goal, week-day preview) + **swipe-to-dismiss** (`SwipeToDismiss.jsx`, framer-motion; dismissed ids in localStorage `lifeos:dismissed-programs`).
 
-## 8. UI enhancement batch (in progress, 2026-07-11) — user asked to "do all this"
-Premium visual overhaul. Order + status:
-1. **Workout empty state → recommendations (DONE, verified, committed).** `Workout.jsx`: replaced "Nothing queued yet" with goal chips (RECO_GOALS: muscle/strength/cut/fit → program.goal) + recommendation hero (best beginner program in goal, week-day preview via WEEK_PRESETS) + 2 more-program cards. Reuses `openProgram` flow. Falls back to simple prompt if no programs. Verified in browser: all 4 goals surface different programs, Start opens ProgramDetailDialog.
-2. **Dashboard "today" band (DONE #2+#3+#4 merged, verified, pushed).** `Dashboard.jsx`: new `TodayHero` under greeting — SVG weekly-goal ring (weekCount/target=4), streak line, muscle recovery chips (ready/recovering/worked-today) from `/workouts/muscle-volume` (recovery field: fresh/worked/recovering). Chips only render when recent training exists. Verified with a logged workout.
-3. **Streak & weekly goal ring** — DONE (part of #2 TodayHero).
-4. **Recovery-based suggestion** — DONE (recovery chips in #2 TodayHero).
-5. **PR trophy shelf (DONE, verified, pushed).** Backend `GET /records` aggregates every exercise's personal records (name + headline heaviest-weight, sorted desc). Frontend `PRShelf` grid on Progress page. Verified 5 PRs render.
-6. **Quick-add on dashboard — SKIPPED (low value for this app).** Original idea was log water/weight/start-next: water=nutrition (excluded + Nutrition page is a placeholder), bodyweight isn't a time-series (lives in profile), start-next already exists (ResumeCard). Revisit only if nutrition/water tracking gets built.
-7. **Progress analytics page (DONE core, verified, pushed).** Added `VolumeTrend` Recharts area chart (weekly kg volume, last 10 weeks — progressive overload). Note: bodyweight is NOT a time-series metric (lives in profile, not body_metrics); body_metrics keys are body_fat/muscle_mass/bmi/bmr etc. Muscle balance already covered by existing muscle-volume bars + MuscleHeatmap. Optional future: e1RM-per-lift lines, time-range selector, body_fat trend.
-8. **Every empty state redone — BLOCKED / bigger than a tweak.** Nutrition/Habits/Journal/Sleep are `Placeholder` components in App.js (routes point at `<Placeholder>`), i.e. NOT built. "Redo their empty states" means building those pages first. Nutrition excluded by user. Habits/Journal/Sleep = future feature work, out of scope for this UI batch.
-9. **Post-workout confetti (DONE, verified, pushed).** `canvas-confetti` (installed --legacy-peer-deps) fires on the completion dialog in WorkoutSession.jsx — 3 bursts if PRs, 1 otherwise, accent-colored particles (`accentHex()` reads --maroon). Verified confetti canvas appears.
-10. **Weekly AI recap (DONE, verified, pushed).** Backend `GET /coach/recap` reuses `build_user_context` + the LLM (Groq Llama 3.3 70B prod). Frontend `WeeklyRecap` card on Dashboard (generate/refresh button, lightweight bold/bullet renderer `RecapText`). Verified real recap generated.
-11. **First-run onboarding (DONE, verified, pushed).** `components/Onboarding.jsx` — 3-question dialog (goal/experience/days). Shown once from Dashboard when a fresh account (no workouts+routines) and `localStorage lifeos:onboarded` unset. Saves goal → `lifeos:reco-goal`, navigates to /workout; HeroCard seeds its `goalKey` from that. Skipped the "seed habits" part (Habits page is a placeholder). Verified: dialog → answers → /workout with goal pre-selected.
+**Dashboard** (`pages/Dashboard.jsx`): `TodayHero` band (SVG weekly-goal ring, streak, muscle-recovery chips from `/workouts/muscle-volume`), stat cards, **Weekly AI recap** card (`GET /coach/recap`, Groq), resume/volume chart, records, muscle focus. **First-run onboarding** (`Onboarding.jsx`) for fresh accounts → 3 questions → seeds `lifeos:reco-goal`.
 
-## 10. New feature pages built (2026-07-14)
-- **Habits page (DONE, verified, pushed).** Backend: `habits` + `habit_logs` collections (indexes added); `GET /habits` (each habit with today status, streak, history map), `POST/PUT/DELETE /habits`, `POST /habits/{id}/log` (check=toggle, count=set value). Two types: `check` (toggle) and `count` (target+unit, +/-). Frontend `pages/Habits.jsx` — cards with emoji, streak flame, 14-day dot strip, check/counter controls, add/delete dialog (emoji picker). Route replaces Placeholder. Verified check toggle, count +/-, streak, create.
-- **Sleep page (DONE, verified, pushed).** Backend: `sleep_logs` (unique per user+date, upsert); `GET /sleep` (logs + stats: avg_hours/avg_quality/last/nights), `POST /sleep`, `DELETE /sleep/{id}`. Frontend `pages/Sleep.jsx` — stat tiles, Recharts duration trend (needs ≥2 nights), recent-nights list w/ quality stars, log dialog (bedtime/wake auto-computes hours via `hoursBetween`, 1-5 stars). Route replaces Placeholder. Verified log, stats, chart, delete.
+**Progress** (`pages/Progress.jsx`): stat boxes, **VolumeTrend** Recharts area (10-wk), **PR trophy shelf** (`GET /records`), WorkoutCalendar, MuscleHeatmap, muscle-volume bars w/ recovery, strength standards, history.
 
-## 11. Health sync — Connections (DONE, verified, pushed 2026-07-14)
-- **Why:** Apple Health & Google Health Connect have NO web/cloud API — a web app can't read a watch directly. Only automatic paths: (a) native app, (b) health aggregator (Terra/Vital — only for cloud-brand devices like Fitbit/Garmin, still needs iOS SDK for Apple Health), (c) brand OAuth API (Fitbit/Garmin, not Apple), (d) on-device automation POSTing to our API. We built (d): a brand-agnostic ingest layer — works for the user's non-Apple watch via Android Health Connect + Tasker/Macrodroid, or iPhone Shortcut, or export apps.
-- **Backend:** per-user `health_token` (secrets.token_urlsafe); `GET /health/connection` (token+path), `POST /health/connection/regenerate`, `POST /health/ingest` (token auth via `X-Health-Token`/Bearer — NOT cookie; steps/resting_hr/active_energy → `health_daily` upsert per day, sleep_hours/quality → `sleep_logs`), `GET /health/daily`. Indexes on health_daily + users.health_token.
-- **Frontend:** `pages/Connections.jsx` (route `/connections`, nav "Connections" w/ Watch icon) — live tiles (steps/HR/kcal), masked sync key (reveal/copy/regenerate), ingest endpoint, per-platform setup guide + sample JSON. `ingestUrl` handles absolute API_BASE (local) vs relative `/api` (prod proxy).
-- Verified: ingest stores data, bad token 401, regenerate invalidates old key, page shows live tiles. **Future:** one-click OAuth for a specific brand (Fitbit/Garmin) = fully automatic no-phone-setup, if user names their watch brand + it has a cloud API; native app for seamless background sync.
+**Habits** (`pages/Habits.jsx`, DONE 2026-07-14): backend `habits`+`habit_logs`; `GET /habits` (today status/streak/history), `POST/PUT/DELETE /habits`, `POST /habits/{id}/log` (check=toggle, count=set value). Two types: check + count(target/unit). Cards w/ emoji, streak, 14-day strip, controls, add/delete dialog.
 
-## 12. Remaining
-- **PWA / offline logging** — the one big original item left. Manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Needs HTTPS (live now). Not started.
-- Optional future: build **Nutrition** (user excluded it) and **Journal** pages (still `Placeholder`); more Progress charts (e1RM lines, time-range selector); wire habit/sleep data into the AI coach context + life-score.
-- Rules for this batch: use `--maroon`/CSS-var tokens (NOT hardcoded colors — accent is user-themed, currently cyan), minimal edits, reuse existing data/flows, verify each in browser, commit+push each (auto-deploys). Mockups were shown & approved for #1, #2, #7.
+**Sleep** (`pages/Sleep.jsx`, DONE 2026-07-14): backend `sleep_logs` (upsert per user+date); `GET /sleep` (logs+stats), `POST /sleep`, `DELETE /sleep/{id}`. Stat tiles, Recharts duration trend (≥2 nights), nights list w/ quality stars, log dialog (bedtime/wake auto-computes hours, 1-5 stars).
 
-### Extra features added on user request (2026-07-11)
-- **Swipe-to-dismiss recommendations (DONE, verified, pushed).** `components/SwipeToDismiss.jsx` (framer-motion `drag`, already installed) + X button. Wraps hero + more-program cards in Workout empty state. Dismissed program ids in localStorage `lifeos:dismissed-programs`, filtered from recommendations; hero advances to next; "Show them again" reset when all dismissed. Verified dismiss + persistence across reload.
-- **Admin-only panel (DONE, verified, pushed).** User picked "Users panel" + "App stats" (+ an unspecified "Something else" — ASK USER what it was). Backend: `GET /admin/stats` (total_users/members/active_this_week/total_workouts/workouts_this_week) + `workout_count` on `/admin/users`. Frontend: `pages/Admin.jsx` (stat tiles + accounts list), route `/admin`. Triple-gated: nav link only for role=admin (Layout.jsx `ADMIN_ITEM`), route `<Navigate>` redirect for non-admins, API 403. Verified admin sees it, regular user blocked all 3 ways. 39 tests pass.
-- **NOTE for #8:** Nutrition/Habits/Journal/Sleep are `Placeholder` components (not built) — "redo their empty states" actually means BUILDING those pages. Bigger scope than a visual tweak.
-- **AI coach model:** prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()` returns "groq"; `GROQ_MODEL` default `llama-3.3-70b-versatile`). Falls back to Claude if only `ANTHROPIC_API_KEY` set.
-- **Prod admin accounts:** `cg3@lifeos.com` (pw `test1234`, migrated) + `chethangowda98654@gmail.com` (pw = ADMIN_PASSWORD env on Render, not recoverable — hashed). Both role=admin on Atlas.
+**Admin panel** (`pages/Admin.jsx`, admin-only): `GET /admin/users` (+workout_count), `GET /admin/stats`. Triple-gated: nav link only for admin, route redirect for non-admins, API 403.
 
-## 9. Still pending (pre-UI-batch)
-- **PWA / offline logging** — manifest + service worker + installable + offline set logging + background sync; then train reminders → real background push. Now possible (HTTPS live). Do after UI batch.
+**Health sync / Connections** (`pages/Connections.jsx`, DONE 2026-07-14): brand-agnostic ingest. Backend: per-user `health_token`; `GET /health/connection`, `POST /health/connection/regenerate`, token-authed `POST /health/ingest` (X-Health-Token; steps/resting_hr/active_energy → `health_daily`, sleep → `sleep_logs`), `GET /health/daily`. Page: live tiles (steps/HR/kcal), masked key (reveal/copy/regenerate), endpoint, per-platform setup guide.
+
+## 6. AI coach
+Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`.
+
+## 7. Open threads / pending
+- **Health sync for Fastrack watch (user's device):** Fastrack (Titan) has NO public API → no one-click OAuth. Auto-sync only works IF the Fastrack companion app can sync to Google Fit/Health Connect (Android) or Apple Health (iPhone). **NEXT: user is checking (a) Android or iPhone, (b) whether the Fastrack app has a Google Fit/Health Connect/Apple Health sync toggle.** If yes → write them the exact Tasker/Macrodroid (Android) or Shortcuts (iPhone) recipe to POST into `/health/ingest`. If no → data locked in their app; make manual logging faster instead.
+- **PWA / offline logging** — the big remaining item. Manifest + service worker + installable + offline set logging + background sync; then upgrade train reminders to real background push (currently in-app only via `hooks/useTrainReminder.js`). HTTPS is live so it's now possible.
+- **Journal page** — still a `Placeholder` in `App.js` (only unbuilt page left besides Nutrition).
+- **Nutrition** — user has explicitly EXCLUDED it for now (still a `Placeholder`).
+- Optional polish: wire habits + sleep + health_daily into the AI coach context and life-score; more Progress charts (e1RM lines, time-range selector).
