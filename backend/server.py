@@ -280,14 +280,29 @@ class SleepLogIn(BaseModel):
 
 
 class HealthIngestIn(BaseModel):
-    """Brand-agnostic daily health payload pushed by a phone automation / export app."""
+    """Brand-agnostic daily health payload pushed by a phone automation / export app.
+    Works with ANY source that writes to Apple Health (iPhone) or Health Connect
+    (Android) — Apple/Garmin/Fitbit/Fastrack/phone pedometer all funnel through there."""
     date: Optional[str] = None  # YYYY-MM-DD; defaults to today
     steps: Optional[int] = None
+    distance_km: Optional[float] = None
     resting_hr: Optional[int] = None
+    avg_hr: Optional[int] = None              # average heart rate (bpm)
+    hrv: Optional[float] = None               # HRV SDNN (ms) — basis of most stress scores
+    spo2: Optional[float] = None              # blood oxygen (%)
+    stress: Optional[int] = None             # 0–100 (watch-reported or HRV-derived)
+    respiratory_rate: Optional[float] = None  # breaths/min
     active_energy: Optional[float] = None  # kcal
     sleep_hours: Optional[float] = None
     sleep_quality: Optional[int] = None  # 1–5
     model_config = {"extra": "ignore"}
+
+
+# Daily metrics that upsert into health_daily (sleep is handled separately below).
+HEALTH_DAILY_FIELDS = (
+    "steps", "distance_km", "resting_hr", "avg_hr", "hrv",
+    "spo2", "stress", "respiratory_rate", "active_energy",
+)
 
 
 class WorkoutSetIn(BaseModel):
@@ -1179,14 +1194,12 @@ async def health_ingest(payload: HealthIngestIn, request: Request):
     uid = str(user["_id"])
     d = payload.date or _today_str()
 
-    # Daily activity metrics → health_daily (upsert per day)
+    # Daily activity/health metrics → health_daily (upsert per day)
     daily = {}
-    if payload.steps is not None:
-        daily["steps"] = payload.steps
-    if payload.resting_hr is not None:
-        daily["resting_hr"] = payload.resting_hr
-    if payload.active_energy is not None:
-        daily["active_energy"] = payload.active_energy
+    for f in HEALTH_DAILY_FIELDS:
+        v = getattr(payload, f)
+        if v is not None:
+            daily[f] = v
     if daily:
         daily["synced_at"] = datetime.now(timezone.utc).isoformat()
         await db.health_daily.update_one(

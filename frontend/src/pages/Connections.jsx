@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api, { API_BASE } from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Footprints, HeartPulse, Flame, Watch, Copy, Check, RefreshCw, Eye, EyeOff } from "lucide-react";
+import { Footprints, HeartPulse, Flame, Watch, Copy, Check, RefreshCw, Eye, EyeOff, Activity, Gauge, Droplets, Route } from "lucide-react";
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -47,9 +47,26 @@ export default function Connections() {
   const masked = token ? token.slice(0, 4) + "•".repeat(Math.max(0, token.length - 8)) + token.slice(-4) : "";
   const today = daily?.today;
 
+  // Core tiles always show; extended ones appear once that metric has synced.
+  const TILES = [
+    { key: "steps", label: "steps today", icon: Footprints, core: true, fmt: (v) => v.toLocaleString() },
+    { key: "resting_hr", label: "resting HR", icon: HeartPulse, core: true },
+    { key: "active_energy", label: "kcal active", icon: Flame, core: true, fmt: (v) => Math.round(v) },
+    { key: "distance_km", label: "km distance", icon: Route, fmt: (v) => v.toFixed(1) },
+    { key: "hrv", label: "HRV (ms)", icon: Activity, fmt: (v) => Math.round(v) },
+    { key: "stress", label: "stress /100", icon: Gauge },
+    { key: "spo2", label: "SpO₂ %", icon: Droplets, fmt: (v) => Math.round(v) },
+  ];
+  const tiles = TILES.filter((t) => t.core || today?.[t.key] != null);
+
   const sampleBody = `{
   "steps": 8432,
+  "distance_km": 6.1,
   "resting_hr": 58,
+  "hrv": 42,
+  "stress": 34,
+  "spo2": 98,
+  "active_energy": 540,
   "sleep_hours": 7.2,
   "sleep_quality": 4
 }`;
@@ -64,21 +81,18 @@ export default function Connections() {
 
       {/* Live status */}
       <div className="grid grid-cols-3 gap-3">
-        <Card className="p-4">
-          <Footprints className="h-4 w-4 text-maroon mb-2" />
-          <div className="text-2xl font-semibold tabular-nums">{loading ? "—" : (today?.steps?.toLocaleString() ?? "—")}</div>
-          <div className="text-[11px] text-muted-foreground">steps today</div>
-        </Card>
-        <Card className="p-4">
-          <HeartPulse className="h-4 w-4 text-maroon mb-2" />
-          <div className="text-2xl font-semibold tabular-nums">{loading ? "—" : (today?.resting_hr ?? "—")}</div>
-          <div className="text-[11px] text-muted-foreground">resting HR</div>
-        </Card>
-        <Card className="p-4">
-          <Flame className="h-4 w-4 text-maroon mb-2" />
-          <div className="text-2xl font-semibold tabular-nums">{loading ? "—" : (today?.active_energy != null ? Math.round(today.active_energy) : "—")}</div>
-          <div className="text-[11px] text-muted-foreground">kcal active</div>
-        </Card>
+        {tiles.map(({ key, label, icon: Icon, fmt }) => {
+          const val = today?.[key];
+          return (
+            <Card key={key} className="p-4">
+              <Icon className="h-4 w-4 text-maroon mb-2" />
+              <div className="text-2xl font-semibold tabular-nums">
+                {loading ? "—" : (val != null ? (fmt ? fmt(val) : val) : "—")}
+              </div>
+              <div className="text-[11px] text-muted-foreground">{label}</div>
+            </Card>
+          );
+        })}
       </div>
 
       {!loading && !daily?.connected && (
