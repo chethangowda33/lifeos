@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { enqueue, isNetworkError } from "@/lib/offlineQueue";
 import {
   Timer, ChevronDown, Plus, Check, Play, Pause, MoreVertical, X, Flame, Trash2,
   ArrowUp, ArrowDown, Repeat, Dumbbell, Calculator, Link2, Unlink, Info, Sparkles, Trophy, StickyNote,
@@ -569,59 +570,75 @@ export default function WorkoutSession() {
   // Save flow
   const submitSave = async () => {
     setSaving(true);
-    try {
-      const { data: saved } = await api.post("/workouts", {
-        name,
-        routine_id: routineId && routineId !== "empty" ? routineId : null,
-        plan_id: planId || null,
-        day_index: planId ? Number(dayIndex) : null,
-        duration_seconds: durationSecs,
-        description,
-        exercises: exercises.map((ex) => ({
-          exercise_id: ex.exercise_id,
-          notes: ex.notes,
-          rest_timer_seconds: ex.rest_timer_seconds,
-          superset_group_id: ex.superset_group_id || null,
-          target_reps: ex.target_reps || null,
-          sets: ex.sets.map((s) => ({
-            set_type: s.set_type,
-            kg: s.kg ? Number(s.kg) : null,
-            reps: s.reps ? Number(s.reps) : null,
-            duration_seconds: s.duration_seconds ? Number(s.duration_seconds) : null,
-            distance_m: s.distance_m ? Number(s.distance_m) : null,
-            rpe: s.rpe ? Number(s.rpe) : null,
-            completed: s.completed,
-          })),
+    const workoutPayload = {
+      name,
+      routine_id: routineId && routineId !== "empty" ? routineId : null,
+      plan_id: planId || null,
+      day_index: planId ? Number(dayIndex) : null,
+      duration_seconds: durationSecs,
+      description,
+      exercises: exercises.map((ex) => ({
+        exercise_id: ex.exercise_id,
+        notes: ex.notes,
+        rest_timer_seconds: ex.rest_timer_seconds,
+        superset_group_id: ex.superset_group_id || null,
+        target_reps: ex.target_reps || null,
+        sets: ex.sets.map((s) => ({
+          set_type: s.set_type,
+          kg: s.kg ? Number(s.kg) : null,
+          reps: s.reps ? Number(s.reps) : null,
+          duration_seconds: s.duration_seconds ? Number(s.duration_seconds) : null,
+          distance_m: s.distance_m ? Number(s.distance_m) : null,
+          rpe: s.rpe ? Number(s.rpe) : null,
+          completed: s.completed,
         })),
-      });
+      })),
+    };
+    const routinePayload = {
+      name,
+      exercises: exercises.map((ex) => ({
+        exercise_id: ex.exercise_id,
+        sets: ex.sets.filter((s) => s.set_type !== "warmup").length || ex.sets.length,
+        reps: ex.target_reps || 10,
+        notes: "",
+      })),
+    };
+
+    // Shared completion — clears the draft and shows the post-workout summary.
+    const finishLocal = (saved) => {
       try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
-
-      if (saveAsRoutine && exercises.length) {
-        try {
-          await api.post("/routines", {
-            name,
-            exercises: exercises.map((ex) => ({
-              exercise_id: ex.exercise_id,
-              sets: ex.sets.filter((s) => s.set_type !== "warmup").length || ex.sets.length,
-              reps: ex.target_reps || 10,
-              notes: "",
-            })),
-          });
-          toast({ title: "Routine saved", description: `"${name}" added to your routines` });
-        } catch { /* non-blocking */ }
-      }
-
       setSavingOpen(false);
       setSummary({
         name,
         sets: stats.sets,
         volume: stats.volume,
         duration: durationSecs,
-        prs: saved?.pr_events || [],
+        prs: saved?.pr_events || [], // no server PRs when saved offline
         muscles: [...new Set(exercises.map((ex) => ex.muscle_group).filter(Boolean))],
       });
+    };
+
+    try {
+      const { data: saved } = await api.post("/workouts", workoutPayload);
+      if (saveAsRoutine && exercises.length) {
+        try {
+          await api.post("/routines", routinePayload);
+          toast({ title: "Routine saved", description: `"${name}" added to your routines` });
+        } catch { /* non-blocking */ }
+      }
+      finishLocal(saved);
     } catch (e) {
-      toast({ title: "Could not save", description: String(e.message || e), variant: "destructive" });
+      // Offline / server unreachable → queue it and finish anyway. It syncs on reconnect.
+      if (isNetworkError(e) || !navigator.onLine) {
+        enqueue({ url: "/workouts", method: "post", body: workoutPayload, label: name });
+        if (saveAsRoutine && exercises.length) {
+          enqueue({ url: "/routines", method: "post", body: routinePayload, label: `${name} (routine)` });
+        }
+        toast({ title: "Saved offline", description: "This workout will sync automatically when you're back online." });
+        finishLocal(null);
+      } else {
+        toast({ title: "Could not save", description: String(e.message || e), variant: "destructive" });
+      }
     } finally {
       setSaving(false);
     }

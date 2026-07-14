@@ -1,8 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch, Menu,
+  Sparkles, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch, Menu, CloudOff,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -12,6 +12,9 @@ import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ColorWheel from "@/components/ColorWheel";
 import { NAV } from "@/constants/testIds";
 import useTrainReminder from "@/hooks/useTrainReminder";
+import useOfflineQueue from "@/hooks/useOfflineQueue";
+import { QUEUE_SYNCED } from "@/lib/offlineQueue";
+import { useToast } from "@/hooks/use-toast";
 
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testId: NAV.itemDashboard },
@@ -94,8 +97,20 @@ export default function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggle, accent, accentId, setAccentId, accents, customHsl, setCustomColor } = useTheme();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const pendingSync = useOfflineQueue(); // count of workouts waiting to sync
   useTrainReminder(); // in-app train reminder notification
+
+  // Toast when queued offline writes flush on reconnect.
+  useEffect(() => {
+    const onSynced = (e) => {
+      const n = e.detail?.synced || 0;
+      if (n > 0) toast({ title: "Back online", description: `Synced ${n} pending ${n === 1 ? "item" : "items"}.` });
+    };
+    window.addEventListener(QUEUE_SYNCED, onSynced);
+    return () => window.removeEventListener(QUEUE_SYNCED, onSynced);
+  }, [toast]);
 
   const initials = (user?.name || user?.email || "U").slice(0, 1).toUpperCase();
   const isAdmin = user?.role === "admin";
@@ -142,6 +157,17 @@ export default function Layout() {
               Welcome back, <span className="text-foreground font-medium">{user?.name || "Athlete"}</span>
             </div>
           </div>
+          <div className="flex items-center gap-2">
+          {pendingSync > 0 && (
+            <span
+              data-testid="offline-pending"
+              title="Waiting for a connection to sync"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-1 text-[11px] text-muted-foreground"
+            >
+              <CloudOff className="h-3.5 w-3.5 text-amber-500" />
+              {pendingSync} to sync
+            </span>
+          )}
           <Popover>
             <PopoverTrigger asChild>
               <button
@@ -220,6 +246,7 @@ export default function Layout() {
               </div>
             </PopoverContent>
           </Popover>
+          </div>
         </header>
         <div className="flex-1 px-4 sm:px-6 lg:px-10 py-6 lg:py-10">
           <Outlet />
