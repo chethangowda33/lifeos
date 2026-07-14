@@ -19,6 +19,7 @@ import json
 import uuid
 import math
 import hashlib
+import secrets
 import logging
 from collections import Counter
 from datetime import datetime, timezone, timedelta
@@ -275,6 +276,17 @@ class SleepLogIn(BaseModel):
     quality: Optional[int] = None  # 1–5
     bedtime: str = ""
     wake_time: str = ""
+    model_config = {"extra": "ignore"}
+
+
+class HealthIngestIn(BaseModel):
+    """Brand-agnostic daily health payload pushed by a phone automation / export app."""
+    date: Optional[str] = None  # YYYY-MM-DD; defaults to today
+    steps: Optional[int] = None
+    resting_hr: Optional[int] = None
+    active_energy: Optional[float] = None  # kcal
+    sleep_hours: Optional[float] = None
+    sleep_quality: Optional[int] = None  # 1–5
     model_config = {"extra": "ignore"}
 
 
@@ -1125,6 +1137,85 @@ async def delete_sleep(sleep_id: str, user=Depends(get_current_user)):
     return {"ok": True}
 
 
+# ── HEALTH SYNC (brand-agnostic ingest for watch / phone health data) ──────────
+async def _get_health_token(user: Dict[str, Any]) -> str:
+    """Return the user's sync token, creating one on first use."""
+    token = user.get("health_token")
+    if not token:
+        token = secrets.token_urlsafe(24)
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"health_token": token}})
+    return token
+
+
+@api.get("/health/connection")
+async def health_connection(user=Depends(get_current_user)):
+    """Sync token + ingest URL for the Connections page."""
+    token = await _get_health_token(user)
+    return {"token": token, "ingest_path": "/api/health/ingest"}
+
+
+@api.post("/health/connection/regenerate")
+async def regenerate_health_token(user=Depends(get_current_user)):
+    token = secrets.token_urlsafe(24)
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"health_token": token}})
+    return {"token": token}
+
+
+@api.post("/health/ingest")
+async def health_ingest(payload: HealthIngestIn, request: Request):
+    """Token-authenticated ingest — called by a phone automation, NOT the browser.
+    Auth via `X-Health-Token` header or `Authorization: Bearer <token>`."""
+    token = request.headers.get("X-Health-Token", "")
+    if not token:
+        auth = request.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:]
+    if not token:
+        raise HTTPException(401, "Missing health sync token")
+    user = await db.users.find_one({"health_token": token})
+    if not user:
+        raise HTTPException(401, "Invalid health sync token")
+
+    uid = str(user["_id"])
+    d = payload.date or _today_str()
+
+    # Daily activity metrics → health_daily (upsert per day)
+    daily = {}
+    if payload.steps is not None:
+        daily["steps"] = payload.steps
+    if payload.resting_hr is not None:
+        daily["resting_hr"] = payload.resting_hr
+    if payload.active_energy is not None:
+        daily["active_energy"] = payload.active_energy
+    if daily:
+        daily["synced_at"] = datetime.now(timezone.utc).isoformat()
+        await db.health_daily.update_one(
+            {"user_id": uid, "date": d}, {"$set": daily}, upsert=True,
+        )
+
+    # Sleep → reuse sleep_logs (one night per date)
+    if payload.sleep_hours is not None:
+        await db.sleep_logs.update_one(
+            {"user_id": uid, "date": d},
+            {"$set": {"user_id": uid, "date": d, "hours": payload.sleep_hours,
+                      "quality": payload.sleep_quality, "source": "sync"}},
+            upsert=True,
+        )
+
+    return {"ok": True, "date": d, "stored": list(daily.keys()) + (["sleep"] if payload.sleep_hours is not None else [])}
+
+
+@api.get("/health/daily")
+async def health_daily(user=Depends(get_current_user)):
+    """Recent synced daily metrics (steps / resting HR / energy) + today's snapshot."""
+    uid = str(user["_id"])
+    docs = await db.health_daily.find({"user_id": uid}).sort("date", -1).to_list(30)
+    for d in docs:
+        d.pop("_id", None)
+    today = next((x for x in docs if x["date"] == _today_str()), None)
+    return {"days": docs, "today": today, "connected": bool(docs)}
+
+
 # ── WORKOUT SESSIONS ──────────────────────────────────────────────────────────
 @api.post("/workouts")
 async def create_workout(payload: WorkoutSessionIn, user=Depends(get_current_user)):
@@ -1868,6 +1959,8 @@ async def on_startup():
     await db.habits.create_index([("user_id", 1), ("created_at", 1)])
     await db.habit_logs.create_index([("user_id", 1), ("habit_id", 1), ("date", 1)], unique=True)
     await db.sleep_logs.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.health_daily.create_index([("user_id", 1), ("date", 1)], unique=True)
+    await db.users.create_index("health_token", sparse=True)
     await db.knowledge.create_index([("title", 1)])
     # Seed — skipped when seed data hasn't changed since the last boot
     sig = _seed_signature()

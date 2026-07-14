@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, BookOpen, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield,
+  Sparkles, BookOpen, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { to: "/journal", label: "Journal", icon: BookOpen, testId: NAV.itemJournal },
   { to: "/sleep", label: "Sleep", icon: Moon, testId: NAV.itemSleep },
   { to: "/progress", label: "Progress", icon: TrendingUp, testId: NAV.itemProgress },
+  { to: "/connections", label: "Connections", icon: Watch },
 ];
 
 // Shown in the sidebar only for admin accounts.

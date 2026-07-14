@@ -22,6 +22,7 @@ import Coach from "@/pages/Coach";
 import Admin from "@/pages/Admin";
 import Habits from "@/pages/Habits";
 import Sleep from "@/pages/Sleep";
+import Connections from "@/pages/Connections";
 import Placeholder from "@/pages/Placeholder";
 
 function App() {
@@ -49,6 +50,7 @@ function App() {
               <Route path="/coach" element={<Coach />} />
               <Route path="/journal" element={<Placeholder title="Journal" description="Daily notes, reflections, mood." icon={BookOpen} />} />
               <Route path="/sleep" element={<Sleep />} />
+              <Route path="/connections" element={<Connections />} />
               <Route path="/progress-old" element={<Placeholder title="Progress" description="Long-term trends across pillars." icon={Sparkles} />} />
             </Route>
 
