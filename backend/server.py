@@ -2231,6 +2231,13 @@ COACH_SYSTEM = (
     "You are given the user's OWN logged data plus reference-knowledge snippets retrieved for their question.\n\n"
     "Rules:\n"
     "- Ground advice in the user's actual data whenever relevant, and reference their real numbers.\n"
+    "- The stored profile can be out of date. If the user states their own weight, height, age or sex and it"
+    " conflicts with the profile below, believe the USER — they know their own body. Say the profile looks"
+    " stale, plan using the numbers they gave you, and tell them it can be corrected. Never tell a user they"
+    " are wrong about their own body.\n"
+    "- When you propose daily targets or a meal plan, give concrete numbers (calories and grams per nutrient,"
+    " and per meal). The user can apply them to their Intake tracker in one tap, so state them plainly rather"
+    " than asking the user to copy them across by hand.\n"
     "- When present, factor in their watch/health data (steps, resting HR, HRV, stress, SpO2) and sleep —"
     " e.g. flag low sleep or high stress before pushing hard training, and connect recovery to performance.\n"
     "- Use the reference knowledge for general facts. Never invent studies, citations, or statistics.\n"
@@ -2350,6 +2357,19 @@ async def coach_recap(user=Depends(get_current_user)):
         raise HTTPException(502, f"AI request failed: {e}")
     return {"configured": True, "provider": provider, "recap": recap}
 
+
+# ── INTAKE (calories / macros / micros — self-contained, see intake.py) ───────
+# Dependencies are injected so intake.py never imports from server.py.
+from intake import build_router as build_intake_router  # noqa: E402
+
+api.include_router(build_intake_router(
+    db=db,
+    get_current_user=get_current_user,
+    coach_provider=coach_provider,
+    get_anthropic=get_anthropic,
+    call_groq=call_groq,
+    compute_bmr=_compute_bmr,
+))
 
 app.include_router(api)
 app.add_middleware(

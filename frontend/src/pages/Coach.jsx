@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { COACH } from "@/constants/testIds";
 import { useToast } from "@/hooks/use-toast";
+import CoachPlanAction from "@/features/intake/CoachPlanAction";
 
 const QUICK_PROMPTS = [
   "How much protein should I eat to build muscle?",
@@ -324,6 +325,11 @@ export default function Coach() {
                             <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
                           ))}
                         </div>
+                      )}
+                      {/* Coach proposes, you dispose — reads targets/meals out of
+                          this reply and lets you apply them to Intake. */}
+                      {!m.error && (
+                        <CoachPlanAction messages={messages.slice(Math.max(0, i - 1), i + 1)} />
                       )}
                       {!m.error && (
                         <button

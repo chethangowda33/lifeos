@@ -20,7 +20,7 @@ const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, testId: NAV.itemDashboard },
   { to: "/workout", label: "Workout", icon: Dumbbell, testId: NAV.itemWorkout },
   { to: "/body-metrics", label: "Body Metrics", icon: Activity, testId: NAV.itemBodyMetrics },
-  { to: "/nutrition", label: "Nutrition", icon: Apple, testId: NAV.itemNutrition },
+  { to: "/intake", label: "Intake", icon: Apple, testId: NAV.itemNutrition },
   { to: "/habits", label: "Habits", icon: ListChecks, testId: NAV.itemHabits },
   { to: "/coach", label: "AI Coach", icon: Sparkles, testId: NAV.itemCoach },
   { to: "/sleep", label: "Sleep", icon: Moon, testId: NAV.itemSleep },

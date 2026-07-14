@@ -1,7 +1,7 @@
 import React from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Apple, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
@@ -23,6 +23,7 @@ import Admin from "@/pages/Admin";
 import Habits from "@/pages/Habits";
 import Sleep from "@/pages/Sleep";
 import Connections from "@/pages/Connections";
+import Intake from "@/features/intake/Intake";
 import Placeholder from "@/pages/Placeholder";
 
 function App() {
@@ -45,7 +46,9 @@ function App() {
               <Route path="/body-metrics" element={<BodyMetrics />} />
               <Route path="/progress" element={<Progress />} />
               <Route path="/admin" element={<Admin />} />
-              <Route path="/nutrition" element={<Placeholder title="Nutrition" description="Track macros, meals and water." icon={Apple} />} />
+              <Route path="/intake" element={<Intake />} />
+              {/* Old link; keep it working. */}
+              <Route path="/nutrition" element={<Navigate to="/intake" replace />} />
               <Route path="/habits" element={<Habits />} />
               <Route path="/coach" element={<Coach />} />
               <Route path="/sleep" element={<Sleep />} />
