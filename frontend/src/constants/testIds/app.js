@@ -12,7 +12,6 @@ export const NAV = {
   itemNutrition: 'nav-item-nutrition',
   itemHabits: 'nav-item-habits',
   itemCoach: 'nav-item-coach',
-  itemJournal: 'nav-item-journal',
   itemSleep: 'nav-item-sleep',
   itemProgress: 'nav-item-progress',
   logoutButton: 'nav-logout-button',

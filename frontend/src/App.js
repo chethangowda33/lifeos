@@ -1,7 +1,7 @@
 import React from "react";
 import "@/App.css";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { Apple, BookOpen, ListChecks, Moon, Sparkles } from "lucide-react";
+import { Apple, Sparkles } from "lucide-react";
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
@@ -48,7 +48,6 @@ function App() {
               <Route path="/nutrition" element={<Placeholder title="Nutrition" description="Track macros, meals and water." icon={Apple} />} />
               <Route path="/habits" element={<Habits />} />
               <Route path="/coach" element={<Coach />} />
-              <Route path="/journal" element={<Placeholder title="Journal" description="Daily notes, reflections, mood." icon={BookOpen} />} />
               <Route path="/sleep" element={<Sleep />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/progress-old" element={<Placeholder title="Progress" description="Long-term trends across pillars." icon={Sparkles} />} />

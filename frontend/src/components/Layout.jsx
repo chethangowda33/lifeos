@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, BookOpen, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch,
+  Sparkles, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -19,7 +19,6 @@ const NAV_ITEMS = [
   { to: "/nutrition", label: "Nutrition", icon: Apple, testId: NAV.itemNutrition },
   { to: "/habits", label: "Habits", icon: ListChecks, testId: NAV.itemHabits },
   { to: "/coach", label: "AI Coach", icon: Sparkles, testId: NAV.itemCoach },
-  { to: "/journal", label: "Journal", icon: BookOpen, testId: NAV.itemJournal },
   { to: "/sleep", label: "Sleep", icon: Moon, testId: NAV.itemSleep },
   { to: "/progress", label: "Progress", icon: TrendingUp, testId: NAV.itemProgress },
   { to: "/connections", label: "Connections", icon: Watch },
