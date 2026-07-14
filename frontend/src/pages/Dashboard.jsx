@@ -11,7 +11,7 @@ import {
 } from "recharts";
 import {
   Dumbbell, Flame, TrendingUp, Scale, Trophy, Play, ArrowRight,
-  Activity, Timer, Sparkles,
+  Activity, Timer, Sparkles, Footprints, HeartPulse, Gauge, Droplets, Route,
 } from "lucide-react";
 import { DASHBOARD } from "@/constants/testIds";
 
@@ -60,6 +60,7 @@ export default function Dashboard() {
   const [routines, setRoutines] = useState([]);
   const [bmi, setBmi] = useState(null);
   const [recovery, setRecovery] = useState([]); // muscle recovery status
+  const [health, setHealth] = useState(null); // today's watch-synced metrics
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -67,12 +68,13 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m, mv] = await Promise.all([
+        const [w, s, r, m, mv, hd] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
           api.get("/body-metrics/latest").catch(() => ({ data: {} })),
           api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
+          api.get("/health/daily").catch(() => ({ data: {} })),
         ]);
         if (!alive) return;
         setWorkouts(w.data || []);
@@ -80,6 +82,7 @@ export default function Dashboard() {
         setRoutines(r.data || []);
         setBmi(m.data?.bmi?.value ?? null);
         setRecovery(mv.data || []);
+        setHealth(hd.data?.today || null);
       } finally {
         if (alive) setLoading(false);
       }
@@ -140,6 +143,9 @@ export default function Dashboard() {
         recovery={recovery}
         loading={loading}
       />
+
+      {/* Today's health — from any synced watch/phone (only shows once data lands) */}
+      {health && <HealthStrip today={health} />}
 
       {/* Stat row */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -324,6 +330,39 @@ function TodayHero({ weekCount, target, streak, recovery, loading }) {
           </div>
         </div>
       )}
+    </Card>
+  );
+}
+
+/* Today's health strip: watch/phone metrics (steps, HR, HRV, stress, SpO₂, distance). */
+function HealthStrip({ today }) {
+  const TILES = [
+    { key: "steps", label: "steps", icon: Footprints, fmt: (v) => v.toLocaleString() },
+    { key: "resting_hr", label: "resting HR", icon: HeartPulse },
+    { key: "hrv", label: "HRV ms", icon: Activity, fmt: (v) => Math.round(v) },
+    { key: "stress", label: "stress /100", icon: Gauge },
+    { key: "spo2", label: "SpO₂ %", icon: Droplets, fmt: (v) => Math.round(v) },
+    { key: "distance_km", label: "km", icon: Route, fmt: (v) => v.toFixed(1) },
+  ];
+  const tiles = TILES.filter((t) => today?.[t.key] != null);
+  if (tiles.length === 0) return null;
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+          <Activity className="h-3.5 w-3.5" /> Today&apos;s health · from your watch
+        </div>
+        <Link to="/connections" className="text-[11px] text-maroon hover:underline">Manage</Link>
+      </div>
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
+        {tiles.map(({ key, label, icon: Icon, fmt }) => (
+          <div key={key}>
+            <Icon className="h-4 w-4 text-maroon mb-1" />
+            <div className="text-xl font-semibold tabular-nums">{fmt ? fmt(today[key]) : today[key]}</div>
+            <div className="text-[10px] text-muted-foreground">{label}</div>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

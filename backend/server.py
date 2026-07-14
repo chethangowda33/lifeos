@@ -2183,6 +2183,39 @@ async def build_user_context(user: Dict[str, Any]) -> str:
     except Exception:
         pass
 
+    # ── Health sync snapshot (steps/HR/HRV/stress from any watch or phone) ────
+    try:
+        hd = await db.health_daily.find({"user_id": uid}).sort("date", -1).to_list(7)
+        if hd:
+            def _avg(key):
+                vals = [d[key] for d in hd if d.get(key) is not None]
+                return round(sum(vals) / len(vals), 1) if vals else None
+            parts = []
+            for key, lbl, unit in (
+                ("steps", "steps", ""), ("distance_km", "distance", " km"),
+                ("resting_hr", "resting HR", " bpm"), ("hrv", "HRV", " ms"),
+                ("stress", "stress", "/100"), ("spo2", "SpO2", "%"),
+                ("active_energy", "active energy", " kcal"),
+            ):
+                a = _avg(key)
+                if a is not None:
+                    parts.append(f"{lbl} ~{a}{unit}/day")
+            if parts:
+                lines.append(f"Health (watch sync, {len(hd)}-day avg): " + ", ".join(parts) + ".")
+    except Exception:
+        pass
+
+    # Sleep (last week of nights)
+    try:
+        sl = await db.sleep_logs.find({"user_id": uid}).sort("date", -1).to_list(7)
+        hrs = [s["hours"] for s in sl if s.get("hours") is not None]
+        if hrs:
+            qs = [s["quality"] for s in sl if s.get("quality") is not None]
+            q = f", quality ~{round(sum(qs) / len(qs), 1)}/5" if qs else ""
+            lines.append(f"Sleep ({len(hrs)} recent nights): avg {round(sum(hrs) / len(hrs), 1)} h/night{q}.")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
@@ -2191,6 +2224,8 @@ COACH_SYSTEM = (
     "You are given the user's OWN logged data plus reference-knowledge snippets retrieved for their question.\n\n"
     "Rules:\n"
     "- Ground advice in the user's actual data whenever relevant, and reference their real numbers.\n"
+    "- When present, factor in their watch/health data (steps, resting HR, HRV, stress, SpO2) and sleep —"
+    " e.g. flag low sleep or high stress before pushing hard training, and connect recovery to performance.\n"
     "- Use the reference knowledge for general facts. Never invent studies, citations, or statistics.\n"
     "- Be direct, specific, and actionable. Use short paragraphs and bullets; bold key numbers.\n"
     "- If the user has little or no logged data, say so and give one concrete first step.\n"
