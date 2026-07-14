@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dumbbell, Zap, Flame, HeartPulse, Sparkles, User } from "lucide-react";
+import ScalePicker from "@/components/ScalePicker";
+import { Dumbbell, Zap, Flame, HeartPulse, ArrowLeft, Check } from "lucide-react";
 
 const GOALS = [
   { key: "muscle", label: "Build muscle", icon: Dumbbell },
@@ -10,153 +11,125 @@ const GOALS = [
   { key: "cut", label: "Lose fat", icon: Flame },
   { key: "fit", label: "Stay fit", icon: HeartPulse },
 ];
-const LEVELS = [["beginner", "New to it"], ["intermediate", "Some experience"], ["advanced", "Advanced"]];
-const DAYS = [2, 3, 4, 5, 6];
 
-/* First-run onboarding — two quick, skippable steps:
-   1) About you (name/age/height/weight/sex) → saved to profile, powers Body Metrics.
-   2) Training (goal/level/days) → pre-selects the workout recommendation.
-   The caller (Dashboard) persists everything via onComplete. */
+const STEPS = ["name", "age", "height", "weight", "sex", "goal"];
+
+/* Full-screen, one-question-per-screen first-run onboarding.
+   Everything is optional — Skip finishes early, saving whatever's been set.
+   Collected profile is persisted by the caller (Dashboard) via onComplete. */
 export default function Onboarding({ open, onComplete, defaultName = "" }) {
-  const [step, setStep] = useState(1);
+  const [i, setI] = useState(0);
   const [name, setName] = useState(defaultName);
-  const [age, setAge] = useState("");
-  const [height, setHeight] = useState("");
-  const [weight, setWeight] = useState("");
+  const [age, setAge] = useState(null);
+  const [height, setHeight] = useState(null);
+  const [weight, setWeight] = useState(null);
   const [sex, setSex] = useState(null);
   const [goal, setGoal] = useState(null);
-  const [level, setLevel] = useState(null);
-  const [days, setDays] = useState(null);
 
-  // Prefill name from the registration name once the dialog opens.
   useEffect(() => { if (open) setName((n) => n || defaultName); }, [open, defaultName]);
+
+  if (!open) return null;
+  const step = STEPS[i];
+  const last = i === STEPS.length - 1;
 
   const finish = () => onComplete({
     name: name.trim() || undefined,
-    age: age ? Number(age) : undefined,
-    height_cm: height ? Number(height) : undefined,
-    weight_kg: weight ? Number(weight) : undefined,
+    age: age ?? undefined,
+    height_cm: height ?? undefined,
+    weight_kg: weight ?? undefined,
     sex: sex || undefined,
-    goal, level, days,
+    goal,
   });
 
-  const Chip = ({ active, onClick, children }) => (
+  const next = () => (last ? finish() : setI(i + 1));
+  const back = () => setI(Math.max(0, i - 1));
+
+  const OptionRow = ({ active, onClick, icon, children }) => (
     <button
       onClick={onClick}
-      className={`rounded-xl border px-3 py-2 text-sm transition ${
-        active ? "bg-maroon text-white border-transparent" : "border-border text-muted-foreground hover:border-[hsl(var(--maroon)/0.5)]"
+      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-4 text-left transition ${
+        active ? "border-maroon bg-[hsl(var(--maroon)/0.06)]" : "border-border hover:border-[hsl(var(--maroon)/0.5)]"
       }`}
     >
-      {children}
+      <span className="h-9 w-9 rounded-xl bg-muted flex items-center justify-center shrink-0 text-foreground">{icon}</span>
+      <span className="flex-1 font-medium">{children}</span>
+      <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center shrink-0 ${active ? "border-maroon bg-maroon" : "border-muted-foreground/40"}`}>
+        {active && <Check className="h-3 w-3 text-white" />}
+      </span>
     </button>
   );
 
-  return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) onComplete({}); }}>
-      <DialogContent className="max-w-md">
-        {step === 1 ? (
-          <>
-            <div className="text-center mb-1">
-              <div className="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-maroon font-semibold">
-                <User className="h-3.5 w-3.5" /> Welcome to LifeOS
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight mt-1">A bit about you</h2>
-              <p className="text-sm text-muted-foreground mt-1">
-                Powers your Body Metrics (BMI, BMR &amp; more). You can skip and add these later.
-              </p>
-            </div>
+  const TITLES = {
+    name: ["What should we call you?", "This is how you'll be greeted."],
+    age: ["How old are you?", "Used to personalise your metrics."],
+    height: ["What's your height?", "Feeds your BMI and body estimates."],
+    weight: ["What's your weight?", "Drag the scale — you can update it anytime."],
+    sex: ["Which best describes you?", "Helps calculate body composition."],
+    goal: ["What's your main goal?", "We'll suggest a plan to match."],
+  };
 
-            <div className="space-y-3 mt-2">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">Name</p>
-                <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Age</p>
-                  <Input type="number" inputMode="numeric" value={age} onChange={(e) => setAge(e.target.value)} placeholder="28" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Height</p>
-                  <Input type="number" inputMode="decimal" value={height} onChange={(e) => setHeight(e.target.value)} placeholder="cm" />
-                </div>
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">Weight</p>
-                  <Input type="number" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="kg" />
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5">Sex</p>
-                <div className="flex gap-2">
-                  <Chip active={sex === "male"} onClick={() => setSex("male")}>Male</Chip>
-                  <Chip active={sex === "female"} onClick={() => setSex("female")}>Female</Chip>
-                </div>
-              </div>
-            </div>
+  return createPortal(
+    <div className="fixed inset-0 z-[60] bg-background flex flex-col">
+      {/* Top bar: back · progress · skip */}
+      <div className="flex items-center gap-3 px-5 pt-5">
+        {i > 0 ? (
+          <button onClick={back} aria-label="Back" className="h-8 w-8 -ml-1 rounded-lg flex items-center justify-center hover:bg-muted">
+            <ArrowLeft className="h-5 w-5" />
+          </button>
+        ) : <div className="h-8 w-8 -ml-1" />}
+        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div className="h-full bg-maroon transition-all duration-300" style={{ width: `${((i + 1) / STEPS.length) * 100}%` }} />
+        </div>
+        <button onClick={finish} className="text-sm text-muted-foreground hover:text-foreground">Skip</button>
+      </div>
 
-            <div className="flex gap-2 mt-5">
-              <Button variant="ghost" onClick={() => onComplete({})} className="flex-1">Skip</Button>
-              <Button onClick={() => setStep(2)} className="flex-1 bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
-                Next
-              </Button>
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="text-center mb-1">
-              <div className="inline-flex items-center gap-1.5 text-xs uppercase tracking-widest text-maroon font-semibold">
-                <Sparkles className="h-3.5 w-3.5" /> Almost there
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight mt-1">Your training</h2>
-              <p className="text-sm text-muted-foreground mt-1">Helps pick your starting plan. Optional.</p>
-            </div>
+      {/* Question */}
+      <div className="flex-1 flex flex-col justify-center px-6 max-w-md w-full mx-auto">
+        <h1 className="text-3xl font-semibold tracking-tight">{TITLES[step][0]}</h1>
+        <p className="text-muted-foreground mt-2 mb-8">{TITLES[step][1]}</p>
 
-            <div className="space-y-4 mt-2">
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">What&apos;s your main goal?</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {GOALS.map((g) => (
-                    <button
-                      key={g.key}
-                      onClick={() => setGoal(g.key)}
-                      className={`flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${
-                        goal === g.key ? "bg-maroon text-white border-transparent" : "border-border text-muted-foreground hover:border-[hsl(var(--maroon)/0.5)]"
-                      }`}
-                    >
-                      <g.icon className="h-4 w-4 shrink-0" /> {g.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Your experience</p>
-                <div className="flex flex-wrap gap-2">
-                  {LEVELS.map(([k, label]) => (
-                    <Chip key={k} active={level === k} onClick={() => setLevel(k)}>{label}</Chip>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Days per week</p>
-                <div className="flex flex-wrap gap-2">
-                  {DAYS.map((d) => (
-                    <Chip key={d} active={days === d} onClick={() => setDays(d)}>{d}</Chip>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex gap-2 mt-5">
-              <Button variant="ghost" onClick={() => setStep(1)} className="flex-1">Back</Button>
-              <Button onClick={finish} className="flex-1 bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
-                {goal ? "Show my plan" : "Finish"}
-              </Button>
-            </div>
-          </>
+        {step === "name" && (
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Your name"
+            className="h-14 text-lg"
+          />
         )}
-      </DialogContent>
-    </Dialog>
+        {step === "age" && (
+          <ScalePicker min={13} max={90} value={age} onChange={setAge} unit="yrs" fallback={25} majorEvery={5} />
+        )}
+        {step === "height" && (
+          <ScalePicker min={120} max={220} value={height} onChange={setHeight} unit="cm" fallback={170} majorEvery={10} />
+        )}
+        {step === "weight" && (
+          <ScalePicker min={30} max={200} value={weight} onChange={setWeight} unit="kg" fallback={70} majorEvery={10} />
+        )}
+        {step === "sex" && (
+          <div className="space-y-3">
+            <OptionRow active={sex === "male"} onClick={() => setSex("male")} icon={<span className="text-lg">♂</span>}>Male</OptionRow>
+            <OptionRow active={sex === "female"} onClick={() => setSex("female")} icon={<span className="text-lg">♀</span>}>Female</OptionRow>
+          </div>
+        )}
+        {step === "goal" && (
+          <div className="space-y-3">
+            {GOALS.map((g) => (
+              <OptionRow key={g.key} active={goal === g.key} onClick={() => setGoal(g.key)} icon={<g.icon className="h-4 w-4" />}>
+                {g.label}
+              </OptionRow>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Continue */}
+      <div className="px-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] pt-2 max-w-md w-full mx-auto">
+        <Button onClick={next} className="w-full h-14 text-base rounded-2xl bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
+          {last ? "Finish" : "Continue"}
+        </Button>
+      </div>
+    </div>,
+    document.body,
   );
 }
