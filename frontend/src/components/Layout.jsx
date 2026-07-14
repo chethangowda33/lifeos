@@ -1,13 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch,
+  Sparkles, Moon, TrendingUp, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch, Menu,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ColorWheel from "@/components/ColorWheel";
 import { NAV } from "@/constants/testIds";
 import useTrainReminder from "@/hooks/useTrainReminder";
@@ -27,81 +28,119 @@ const NAV_ITEMS = [
 // Shown in the sidebar only for admin accounts.
 const ADMIN_ITEM = { to: "/admin", label: "Admin", icon: Shield };
 
+/* Sidebar body — shared by the desktop rail and the mobile slide-in drawer. */
+function SidebarBody({ isAdmin, user, initials, onNavigate, onLogout }) {
+  const items = isAdmin ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS;
+  return (
+    <div className="flex flex-col h-full">
+      <div className="px-6 py-7">
+        <div className="flex items-center gap-2.5">
+          <div className="h-9 w-9 rounded-xl bg-maroon flex items-center justify-center text-white">
+            <Dumbbell className="h-5 w-5" />
+          </div>
+          <div>
+            <div className="font-semibold tracking-tight text-base">LifeOS</div>
+            <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Personal OS</div>
+          </div>
+        </div>
+      </div>
+
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+        {items.map(({ to, label, icon: Icon, testId }) => (
+          <NavLink
+            key={to}
+            to={to}
+            data-testid={testId}
+            onClick={onNavigate}
+            className={({ isActive }) =>
+              `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+                isActive
+                  ? "bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-medium"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              }`
+            }
+          >
+            <Icon className="h-4 w-4 shrink-0" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </nav>
+
+      <div className="p-3 border-t border-[hsl(var(--sidebar-border))]">
+        <div className="flex items-center gap-3 px-3 py-2">
+          <div className="h-8 w-8 rounded-full bg-maroon text-white flex items-center justify-center text-sm font-semibold">
+            {initials}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{user?.name || "User"}</div>
+            <div className="text-[11px] text-muted-foreground truncate">{user?.email}</div>
+          </div>
+        </div>
+        <Button
+          data-testid={NAV.logoutButton}
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start gap-2 mt-1 text-muted-foreground hover:text-foreground"
+          onClick={onLogout}
+        >
+          <LogOut className="h-4 w-4" /> Log out
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export default function Layout() {
   const { user, logout } = useAuth();
   const { theme, toggle, accent, accentId, setAccentId, accents, customHsl, setCustomColor } = useTheme();
   const navigate = useNavigate();
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   useTrainReminder(); // in-app train reminder notification
 
   const initials = (user?.name || user?.email || "U").slice(0, 1).toUpperCase();
+  const isAdmin = user?.role === "admin";
+  const handleLogout = async () => { await logout(); navigate("/login"); };
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      {/* Sidebar */}
+      {/* Desktop sidebar */}
       <aside
         data-testid={NAV.sidebar}
         className="hidden md:flex md:w-64 flex-col border-r border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar))]"
       >
-        <div className="px-6 py-7">
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-xl bg-maroon flex items-center justify-center text-white">
-              <Dumbbell className="h-5 w-5" />
-            </div>
-            <div>
-              <div className="font-semibold tracking-tight text-base">LifeOS</div>
-              <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Personal OS</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 px-3 space-y-1">
-          {(user?.role === "admin" ? [...NAV_ITEMS, ADMIN_ITEM] : NAV_ITEMS).map(({ to, label, icon: Icon, testId }) => (
-            <NavLink
-              key={to}
-              to={to}
-              data-testid={testId}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
-                  isActive
-                    ? "bg-[hsl(var(--accent))] text-[hsl(var(--accent-foreground))] font-medium"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`
-              }
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="p-3 border-t border-[hsl(var(--sidebar-border))]">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <div className="h-8 w-8 rounded-full bg-maroon text-white flex items-center justify-center text-sm font-semibold">
-              {initials}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium truncate">{user?.name || "User"}</div>
-              <div className="text-[11px] text-muted-foreground truncate">{user?.email}</div>
-            </div>
-          </div>
-          <Button
-            data-testid={NAV.logoutButton}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start gap-2 mt-1 text-muted-foreground hover:text-foreground"
-            onClick={async () => { await logout(); navigate("/login"); }}
-          >
-            <LogOut className="h-4 w-4" /> Log out
-          </Button>
-        </div>
+        <SidebarBody isAdmin={isAdmin} user={user} initials={initials} onLogout={handleLogout} />
       </aside>
+
+      {/* Mobile slide-in nav */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="left" className="p-0 w-72 bg-[hsl(var(--sidebar))] border-[hsl(var(--sidebar-border))]">
+          <SidebarBody
+            isAdmin={isAdmin}
+            user={user}
+            initials={initials}
+            onNavigate={() => setMobileNavOpen(false)}
+            onLogout={() => { setMobileNavOpen(false); handleLogout(); }}
+          />
+        </SheetContent>
+      </Sheet>
 
       {/* Main content */}
       <main className="flex-1 flex flex-col min-w-0">
         <header className="flex items-center justify-between px-6 lg:px-10 py-4 border-b border-border bg-background/80 backdrop-blur sticky top-0 z-30">
-          <div className="md:hidden font-semibold text-lg">LifeOS</div>
-          <div className="hidden md:block text-sm text-muted-foreground">
-            Welcome back, <span className="text-foreground font-medium">{user?.name || "Athlete"}</span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              data-testid={NAV.mobileNavToggle}
+              aria-label="Open menu"
+              onClick={() => setMobileNavOpen(true)}
+              className="md:hidden h-9 w-9 -ml-1 rounded-lg flex items-center justify-center hover:bg-muted transition-colors"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div className="md:hidden font-semibold text-lg">LifeOS</div>
+            <div className="hidden md:block text-sm text-muted-foreground">
+              Welcome back, <span className="text-foreground font-medium">{user?.name || "Athlete"}</span>
+            </div>
           </div>
           <Popover>
             <PopoverTrigger asChild>

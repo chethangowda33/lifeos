@@ -2,6 +2,7 @@
 
 export const NAV = {
   sidebar: 'nav-sidebar',
+  mobileNavToggle: 'nav-mobile-toggle',
   themeToggle: 'nav-theme-toggle',
   themeLightButton: 'nav-theme-light',
   themeDarkButton: 'nav-theme-dark',
