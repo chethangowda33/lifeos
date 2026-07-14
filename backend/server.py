@@ -206,6 +206,7 @@ class LoginIn(BaseModel):
 
 
 class UserProfileIn(BaseModel):
+    name: Optional[str] = None  # top-level user field (not stored in profile)
     age: Optional[int] = None
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
@@ -490,11 +491,17 @@ async def admin_stats(user=Depends(require_admin)):
 @api.put("/auth/profile")
 async def update_profile(payload: UserProfileIn, user=Depends(get_current_user)):
     # Merge with existing profile (partial update) — never wipe untouched fields.
+    data = payload.model_dump()
+    name = data.pop("name", None)
     merged = dict(user.get("profile") or {})
-    for k, v in payload.model_dump().items():
+    for k, v in data.items():
         if v is not None:
             merged[k] = v
-    await db.users.update_one({"_id": user["_id"]}, {"$set": {"profile": merged}})
+    update = {"profile": merged}
+    if name and name.strip():
+        update["name"] = name.strip()
+        user["name"] = name.strip()
+    await db.users.update_one({"_id": user["_id"]}, {"$set": update})
     user["profile"] = merged
     return serialize_user(user)
 

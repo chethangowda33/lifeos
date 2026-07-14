@@ -52,7 +52,7 @@ function fmtRelative(iso) {
 
 /* ── page ────────────────────────────────────────────────────────────────── */
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, updateProfile } = useAuth();
   const navigate = useNavigate();
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [workouts, setWorkouts] = useState([]);
@@ -99,11 +99,21 @@ export default function Dashboard() {
     if (!seen && workouts.length === 0 && routines.length === 0) setShowOnboarding(true);
   }, [loading, workouts, routines]);
 
-  const finishOnboarding = ({ goal }) => {
+  const finishOnboarding = async ({ goal, name, age, height_cm, weight_kg, sex }) => {
     try {
       localStorage.setItem("lifeos:onboarded", "1");
       if (goal) localStorage.setItem("lifeos:reco-goal", goal);
     } catch { /* ignore */ }
+    // Persist any profile details they entered → feeds Body Metrics (BMI/BMR).
+    const profile = {};
+    if (name) profile.name = name;
+    if (age != null) profile.age = age;
+    if (height_cm != null) profile.height_cm = height_cm;
+    if (weight_kg != null) profile.weight_kg = weight_kg;
+    if (sex) profile.sex = sex;
+    if (Object.keys(profile).length) {
+      try { await updateProfile(profile); } catch { /* ignore */ }
+    }
     setShowOnboarding(false);
     if (goal) navigate("/workout");
   };
@@ -120,7 +130,7 @@ export default function Dashboard() {
 
   return (
     <div data-testid={DASHBOARD.root} className="max-w-6xl space-y-6 animate-fade-up">
-      <Onboarding open={showOnboarding} onComplete={finishOnboarding} />
+      <Onboarding open={showOnboarding} onComplete={finishOnboarding} defaultName={user?.name} />
 
       {/* Hero */}
       <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">

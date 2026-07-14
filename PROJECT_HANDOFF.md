@@ -45,7 +45,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - Intelligence: progression suggestions, PRs, volume landmarks, plateau/deload flags.
 - **Empty state = goal-filtered recommendations** (RECO_GOALS → program.goal, week-day preview) + **swipe-to-dismiss** (`SwipeToDismiss.jsx`, framer-motion; dismissed ids in localStorage `lifeos:dismissed-programs`).
 
-**Dashboard** (`pages/Dashboard.jsx`): `TodayHero` band (SVG weekly-goal ring, streak, muscle-recovery chips from `/workouts/muscle-volume`), stat cards, **Weekly AI recap** card (`GET /coach/recap`, Groq), resume/volume chart, records, muscle focus. **First-run onboarding** (`Onboarding.jsx`) for fresh accounts → 3 questions → seeds `lifeos:reco-goal`.
+**Dashboard** (`pages/Dashboard.jsx`): `TodayHero` band (SVG weekly-goal ring, streak, muscle-recovery chips from `/workouts/muscle-volume`), stat cards, **Weekly AI recap** card (`GET /coach/recap`, Groq), resume/volume chart, records, muscle focus. **First-run onboarding** (`Onboarding.jsx`) for fresh accounts — **2 skippable steps**: (1) *About you* — name/age/height/weight/sex → saved via `updateProfile` (name → top-level, rest → `profile`), so **Body Metrics** auto-fills BMI/BMR + 7 estimates; (2) *Training* — goal/level/days → seeds `lifeos:reco-goal`. Every step has Skip; name prefills from registration. `PUT /auth/profile` now also accepts `name`.
 
 **Progress** (`pages/Progress.jsx`): stat boxes, **VolumeTrend** Recharts area (10-wk), **PR trophy shelf** (`GET /records`), WorkoutCalendar, MuscleHeatmap, muscle-volume bars w/ recovery, strength standards, history.
 
