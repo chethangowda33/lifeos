@@ -404,10 +404,12 @@ export default function WorkoutSession() {
     // type your own — so tapping ✓ actually logs weight/reps (fixes volume = 0).
     const patch = { completed: newVal };
     const empty = (v) => v === "" || v == null;
+    // Adopt the greyed "previous" values only if you left the field blank AND the
+    // previous value is real (never overwrite with a meaningless 0).
     if (newVal && s.previous) {
-      if (empty(s.kg) && s.previous.kg != null) patch.kg = s.previous.kg;
-      if (empty(s.reps) && s.previous.reps != null) patch.reps = s.previous.reps;
-      if (empty(s.duration_seconds) && s.previous.duration_seconds != null) patch.duration_seconds = s.previous.duration_seconds;
+      if (empty(s.kg) && s.previous.kg) patch.kg = s.previous.kg;
+      if (empty(s.reps) && s.previous.reps) patch.reps = s.previous.reps;
+      if (empty(s.duration_seconds) && s.previous.duration_seconds) patch.duration_seconds = s.previous.duration_seconds;
     }
     updateSet(exIdx, setIdx, patch);
     // Start rest timer
@@ -1372,9 +1374,11 @@ function SetRow({
           <div className="relative">
             <Input
               type="number"
+              inputMode="decimal"
               data-testid={SESSION.kgInput}
               value={set.kg ?? ""}
               onChange={(e) => onUpdate({ kg: e.target.value })}
+              onBlur={(e) => onUpdate({ kg: e.target.value })}
               placeholder={bodyweight ? "BW" : "0"}
               title={bodyweight ? "Added weight on top of bodyweight (leave blank for bodyweight only)" : undefined}
               className="h-8 text-center"
@@ -1391,9 +1395,11 @@ function SetRow({
           </div>
           <Input
             type="number"
+            inputMode="numeric"
             data-testid={SESSION.repsInput}
             value={set.reps ?? ""}
             onChange={(e) => onUpdate({ reps: e.target.value })}
+            onBlur={(e) => onUpdate({ reps: e.target.value })}
             placeholder="0"
             className="h-8 text-center"
           />

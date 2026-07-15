@@ -1,6 +1,6 @@
 /* LifeOS service worker — app-shell offline support.
  * Bump CACHE version whenever the caching strategy changes to force a refresh. */
-const CACHE = "lifeos-v1";
+const CACHE = "lifeos-v2";
 const SHELL = ["/", "/index.html", "/manifest.json", "/icon-192.png", "/favicon-32.png"];
 
 self.addEventListener("install", (event) => {
