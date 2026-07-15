@@ -1362,6 +1362,51 @@ async def workout_stats(user=Depends(get_current_user)):
     }
 
 
+@api.put("/workouts/{workout_id}")
+async def update_workout(workout_id: str, payload: WorkoutSessionIn, user=Depends(get_current_user)):
+    """Edit a previously saved workout — fix weights/reps, add sets, or add/remove
+    exercises. Recomputes aggregate stats; keeps the original date."""
+    try: oid = ObjectId(workout_id)
+    except Exception: raise HTTPException(404, "Workout not found")
+    existing = await db.workout_sessions.find_one({"_id": oid, "user_id": str(user["_id"])})
+    if not existing:
+        raise HTTPException(404, "Workout not found")
+
+    total_sets = 0
+    completed_sets = 0
+    total_volume = 0.0
+    for ex in payload.exercises:
+        for s in ex.sets:
+            total_sets += 1
+            if s.completed:
+                completed_sets += 1
+                if s.kg and s.reps:
+                    total_volume += s.kg * s.reps
+
+    exercises_out = []
+    for ex in payload.exercises:
+        ex_d = ex.model_dump()
+        for s in ex_d["sets"]:
+            s["e1rm"] = _epley(s.get("kg") or 0, s.get("reps") or 0) if s.get("completed") else 0
+        exercises_out.append(ex_d)
+
+    update = {
+        "name": payload.name,
+        "description": payload.description,
+        "duration_seconds": payload.duration_seconds or existing.get("duration_seconds", 0),
+        "exercises": exercises_out,
+        "total_sets": total_sets,
+        "completed_sets": completed_sets,
+        "total_volume_kg": round(total_volume, 1),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.workout_sessions.update_one({"_id": oid}, {"$set": update})
+    doc = await db.workout_sessions.find_one({"_id": oid})
+    doc["id"] = str(doc.pop("_id"))
+    doc.pop("user_id", None)
+    return doc
+
+
 @api.delete("/workouts/{workout_id}")
 async def delete_workout(workout_id: str, user=Depends(get_current_user)):
     try: oid = ObjectId(workout_id)

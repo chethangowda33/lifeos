@@ -4,7 +4,8 @@ import api from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Dumbbell, TrendingUp, Calendar, Trash2, Flame, Trophy } from "lucide-react";
+import { Dumbbell, TrendingUp, Calendar, Trash2, Flame, Trophy, Pencil } from "lucide-react";
+import EditWorkoutDialog from "@/components/EditWorkoutDialog";
 import {
   Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip,
 } from "recharts";
@@ -69,6 +70,7 @@ export default function Progress() {
   const [strength, setStrength] = useState([]);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null); // workout being edited
 
   const load = async () => {
     setLoading(true);
@@ -226,21 +228,39 @@ export default function Progress() {
                     </div>
                   )}
                 </div>
-                <Button
-                  data-testid={PROGRESS.deleteButton}
-                  size="icon"
-                  variant="ghost"
-                  className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100"
-                  onClick={() => onDelete(w.id)}
-                  aria-label="Delete workout"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground hover:text-maroon"
+                    onClick={() => setEditing(w)}
+                    aria-label="Edit workout"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    data-testid={PROGRESS.deleteButton}
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={() => onDelete(w.id)}
+                    aria-label="Delete workout"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </Card>
           ))}
         </div>
       )}
+
+      <EditWorkoutDialog
+        workout={editing}
+        open={!!editing}
+        onClose={() => setEditing(null)}
+        onSaved={load}
+      />
     </div>
   );
 }
