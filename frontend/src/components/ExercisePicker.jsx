@@ -59,6 +59,9 @@ export default function ExercisePicker({
   const [recents, setRecents] = useState([]);
   const [selected, setSelected] = useState({}); // id -> exercise object
   const [detailEx, setDetailEx] = useState(null); // exercise to show full detail for
+  const [loading, setLoading] = useState(false); // fetching the library (cold backend can be slow)
+  const [loadError, setLoadError] = useState(false);
+  const [reloadTick, setReloadTick] = useState(0); // manual retry
 
   const existing = useMemo(() => new Set(existingIds), [existingIds]);
   const selectedList = useMemo(() => Object.values(selected), [selected]);
@@ -119,8 +122,15 @@ export default function ExercisePicker({
     if (search) params.search = search;
     if (equipment !== "all") params.equipment = equipment;
     if (muscle !== "all") params.muscle_group = muscle;
-    api.get("/exercises", { params }).then(({ data }) => setExercises(data));
-  }, [open, search, equipment, muscle]);
+    let alive = true;
+    setLoading(true);
+    setLoadError(false);
+    api.get("/exercises", { params })
+      .then(({ data }) => { if (alive) setExercises(data); })
+      .catch(() => { if (alive) { setLoadError(true); setExercises([]); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [open, search, equipment, muscle, reloadTick]);
 
   const Row = ({ ex, size = 12 }) => {
     const added = existing.has(ex.id);
@@ -304,8 +314,29 @@ export default function ExercisePicker({
               <div className="text-[11px] uppercase tracking-widest text-muted-foreground px-2 pt-2 pb-0.5">All exercises</div>
             </>
           )}
-          {exercises.map((ex) => <Row key={ex.id} ex={ex} />)}
-          {exercises.length === 0 && (
+          {!loadError && exercises.map((ex) => <Row key={ex.id} ex={ex} />)}
+          {loading && exercises.length === 0 && (
+            <div className="space-y-1 pt-1">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-3 px-2 py-2">
+                  <div className="h-11 w-11 rounded bg-muted animate-pulse" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
+                    <div className="h-2.5 w-1/3 rounded bg-muted animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {loadError && (
+            <div className="text-center text-sm py-12">
+              <p className="text-muted-foreground">Couldn&apos;t load exercises. The server may be waking up — give it a moment.</p>
+              <Button size="sm" variant="outline" className="mt-3" onClick={() => setReloadTick((n) => n + 1)}>
+                Retry
+              </Button>
+            </div>
+          )}
+          {!loading && !loadError && exercises.length === 0 && (
             <div className="text-center text-muted-foreground text-sm py-12">No exercises found.</div>
           )}
         </div>

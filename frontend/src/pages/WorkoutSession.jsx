@@ -39,8 +39,9 @@ function accentHex() {
   return "#" + m.slice(0, 3).map((n) => Number(n).toString(16).padStart(2, "0")).join("");
 }
 
-// Muscle groups that are time-based (no kg/reps — use duration)
-const TIME_BASED = new Set(["cardio", "core"]);
+// Muscle groups that are time-based (no kg/reps — use duration). Core is rep-based
+// (sit-ups, crunches, leg raises); only cardio defaults to duration.
+const TIME_BASED = new Set(["cardio"]);
 
 function fmtDuration(secs) {
   const s = Math.max(0, Math.floor(secs));
@@ -399,7 +400,16 @@ export default function WorkoutSession() {
     const ex = exercises[exIdx];
     const s = ex.sets[setIdx];
     const newVal = !s.completed;
-    updateSet(exIdx, setIdx, { completed: newVal });
+    // Completing a set adopts the greyed "previous" values you see if you didn't
+    // type your own — so tapping ✓ actually logs weight/reps (fixes volume = 0).
+    const patch = { completed: newVal };
+    const empty = (v) => v === "" || v == null;
+    if (newVal && s.previous) {
+      if (empty(s.kg) && s.previous.kg != null) patch.kg = s.previous.kg;
+      if (empty(s.reps) && s.previous.reps != null) patch.reps = s.previous.reps;
+      if (empty(s.duration_seconds) && s.previous.duration_seconds != null) patch.duration_seconds = s.previous.duration_seconds;
+    }
+    updateSet(exIdx, setIdx, patch);
     // Start rest timer
     if (newVal && ex.rest_timer_seconds > 0) {
       setRestState((rs) => ({
@@ -572,27 +582,39 @@ export default function WorkoutSession() {
   // Save flow
   const submitSave = async () => {
     setSaving(true);
+    // Coerce user input to the exact types the API validates against, so a stray
+    // string / decimal / empty field never 422s the whole save.
+    const numOrNull = (v) => {
+      if (v === "" || v == null) return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const intOrNull = (v) => {
+      const n = numOrNull(v);
+      return n == null ? null : Math.round(n);
+    };
     const workoutPayload = {
       name,
       routine_id: routineId && routineId !== "empty" ? routineId : null,
       plan_id: planId || null,
-      day_index: planId ? Number(dayIndex) : null,
-      duration_seconds: durationSecs,
+      day_index: planId && Number.isFinite(Number(dayIndex)) ? Number(dayIndex) : null,
+      duration_seconds: intOrNull(durationSecs) || 0,
       description,
-      exercises: exercises.map((ex) => ({
+      // Drop any exercise without a valid id — the API requires exercise_id.
+      exercises: exercises.filter((ex) => ex.exercise_id).map((ex) => ({
         exercise_id: ex.exercise_id,
-        notes: ex.notes,
-        rest_timer_seconds: ex.rest_timer_seconds,
+        notes: ex.notes || "",
+        rest_timer_seconds: intOrNull(ex.rest_timer_seconds) ?? 90, // required int, never null
         superset_group_id: ex.superset_group_id || null,
-        target_reps: ex.target_reps || null,
+        target_reps: intOrNull(ex.target_reps),
         sets: ex.sets.map((s) => ({
-          set_type: s.set_type,
-          kg: s.kg ? Number(s.kg) : null,
-          reps: s.reps ? Number(s.reps) : null,
-          duration_seconds: s.duration_seconds ? Number(s.duration_seconds) : null,
-          distance_m: s.distance_m ? Number(s.distance_m) : null,
-          rpe: s.rpe ? Number(s.rpe) : null,
-          completed: s.completed,
+          set_type: s.set_type || "working",
+          kg: numOrNull(s.kg),
+          reps: intOrNull(s.reps),
+          duration_seconds: intOrNull(s.duration_seconds),
+          distance_m: numOrNull(s.distance_m),
+          rpe: numOrNull(s.rpe),
+          completed: !!s.completed,
         })),
       })),
     };
@@ -639,7 +661,16 @@ export default function WorkoutSession() {
         toast({ title: "Saved offline", description: "This workout will sync automatically when you're back online." });
         finishLocal(null);
       } else {
-        toast({ title: "Could not save", description: String(e.message || e), variant: "destructive" });
+        // Surface the real validation error (which field) instead of a bare "422".
+        const detail = e.response?.data?.detail;
+        let msg = String(e.message || e);
+        if (Array.isArray(detail) && detail[0]) {
+          const loc = (detail[0].loc || []).slice(-2).join(" ");
+          msg = `${loc}: ${detail[0].msg}`;
+        } else if (typeof detail === "string") {
+          msg = detail;
+        }
+        toast({ title: "Could not save", description: msg, variant: "destructive" });
       }
     } finally {
       setSaving(false);
