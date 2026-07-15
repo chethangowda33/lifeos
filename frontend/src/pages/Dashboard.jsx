@@ -460,7 +460,7 @@ function StatCard({ testId, icon: Icon, label, value, unit, hint, accent }) {
   return (
     <Card
       data-testid={testId}
-      className={`p-4 relative overflow-hidden ${accent ? "border-[hsl(var(--maroon)/0.4)]" : ""}`}
+      className={`p-4 relative overflow-hidden card-interactive ${accent ? "border-[hsl(var(--maroon)/0.4)]" : ""}`}
     >
       {accent && (
         <div className="absolute inset-0 bg-gradient-to-br from-[hsl(var(--maroon)/0.07)] to-transparent pointer-events-none" />
@@ -697,8 +697,8 @@ function MuscleFocus({ muscles, loading }) {
             </div>
             <div className="h-2 rounded-full bg-muted overflow-hidden">
               <div
-                className="h-full rounded-full bg-maroon transition-all"
-                style={{ width: `${Math.max(6, (m.volume / max) * 100)}%` }}
+                className="h-full rounded-full bg-gradient-to-r from-[hsl(var(--maroon))] to-[hsl(var(--maroon-hover))] transition-all duration-500"
+                style={{ width: `${Math.max(6, (m.volume / max) * 100)}%`, boxShadow: "0 0 12px -2px hsl(var(--maroon) / 0.5)" }}
               />
             </div>
           </div>

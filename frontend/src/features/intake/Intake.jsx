@@ -22,8 +22,8 @@ function NutrientBar({ nutrient, value, target }) {
   const pct = target > 0 ? Math.min((value / target) * 100, 100) : 0;
   const over = target > 0 && value > target;
   const color = nutrient.limit
-    ? over ? "bg-destructive" : "bg-maroon"
-    : over ? "bg-[hsl(var(--success,142_71%_45%))]" : "bg-maroon";
+    ? over ? "bg-destructive" : "bar-accent"
+    : over ? "bg-[hsl(var(--success,142_71%_45%))]" : "bar-accent";
 
   return (
     <div>
@@ -189,7 +189,7 @@ export default function Intake() {
 
         <div className="h-2 rounded-full bg-muted overflow-hidden mb-5">
           <div
-            className={`h-full rounded-full transition-all ${caloriesLeft < 0 ? "bg-destructive" : "bg-maroon"}`}
+            className={`h-full rounded-full transition-all duration-500 ${caloriesLeft < 0 ? "bg-destructive" : "bar-accent"}`}
             style={{ width: `${caloriePct}%` }}
           />
         </div>

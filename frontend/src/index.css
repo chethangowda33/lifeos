@@ -43,6 +43,10 @@
   --sidebar-border: 30 10% 88%;
 
   --radius: 0.75rem;
+
+  --shadow-card: 0 1px 2px -1px rgb(20 10 12 / .08), 0 10px 26px -18px rgb(20 10 12 / .22);
+  --shadow-pop: 0 10px 34px -12px rgb(20 10 12 / .26);
+  --shadow-accent: 0 8px 22px -10px hsl(var(--maroon) / .45);
 }
 
 .dark {
@@ -74,6 +78,10 @@
   --sidebar: 0 0% 9%;
   --sidebar-foreground: 30 20% 90%;
   --sidebar-border: 0 0% 16%;
+
+  --shadow-card: 0 1px 0 hsl(0 0% 100% / .04) inset, 0 18px 40px -24px rgb(0 0 0 / .70);
+  --shadow-pop: 0 14px 44px -12px rgb(0 0 0 / .62);
+  --shadow-accent: 0 10px 26px -10px hsl(var(--maroon) / .55);
 }
 
 @layer base {
@@ -89,12 +97,41 @@
     font-family: 'Bricolage Grotesque', 'Manrope', sans-serif;
     letter-spacing: -0.02em;
   }
+  ::selection {
+    background: hsl(var(--maroon) / 0.25);
+    color: hsl(var(--foreground));
+  }
+  /* Inputs/selects/textareas get a soft maroon focus ring app-wide */
+  input:focus-visible, textarea:focus-visible, [role="combobox"]:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px hsl(var(--maroon) / 0.18);
+    border-color: hsl(var(--maroon) / 0.55) !important;
+  }
+}
+
+/* Accent progress-bar fill — gradient + soft glow */
+.bar-accent {
+  background-image: linear-gradient(90deg, hsl(var(--maroon)), hsl(var(--maroon-hover)));
+  box-shadow: 0 0 10px -2px hsl(var(--maroon) / 0.5);
+}
+
+/* Cards lift on hover — opt in with .card-interactive */
+.card-interactive:hover {
+  transform: translateY(-2px);
+  border-color: hsl(var(--maroon) / 0.35);
+  box-shadow: var(--shadow-pop);
 }
 
 /* Custom utility for maroon accent text */
 .text-maroon { color: hsl(var(--maroon)); }
 .bg-maroon { background-color: hsl(var(--maroon)); }
 .border-maroon { border-color: hsl(var(--maroon)); }
+
+/* Elevation utilities (own namespace — avoids Tailwind's shadow-color utilities) */
+.elev-card { box-shadow: var(--shadow-card); }
+.elev-pop { box-shadow: var(--shadow-pop); }
+.elev-accent { box-shadow: var(--shadow-accent); }
+.hover\:elev-accent-lg:hover { box-shadow: 0 12px 30px -10px hsl(var(--maroon) / 0.6); }
 
 /* Subtle grain for depth */
 .grain::before {

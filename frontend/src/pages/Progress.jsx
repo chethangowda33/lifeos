@@ -260,7 +260,7 @@ function PRShelf({ records }) {
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
         {top.map((r) => (
-          <div key={r.exercise_id} className="rounded-xl border border-border bg-card p-3">
+          <div key={r.exercise_id} className="rounded-xl border border-border bg-card p-3 card-interactive">
             <div className="flex items-center justify-between">
               <span className="text-lg font-semibold tabular-nums">{r.headline_value}<span className="text-[11px] text-muted-foreground font-normal"> kg</span></span>
               <Trophy className="h-3.5 w-3.5 text-maroon/70 shrink-0" />
@@ -341,7 +341,7 @@ function WorkoutCalendar({ workouts }) {
               <div
                 key={di}
                 title={c.on ? "Trained" : ""}
-                className={`h-3 w-3 rounded-sm ${c.future ? "opacity-0" : c.on ? "bg-maroon" : "bg-muted"}`}
+                className={`h-3 w-3 rounded-sm transition-colors ${c.future ? "opacity-0" : c.on ? "bar-accent" : "bg-muted"}`}
               />
             ))}
           </div>
@@ -353,7 +353,7 @@ function WorkoutCalendar({ workouts }) {
 
 function StatBox({ icon: Icon, label, value }) {
   return (
-    <Card className="p-4">
+    <Card className="p-4 card-interactive">
       <div className="flex items-center gap-2 text-muted-foreground text-[10px] uppercase tracking-widest">
         <Icon className="h-3.5 w-3.5" />
         {label}

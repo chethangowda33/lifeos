@@ -78,7 +78,7 @@ export default function Onboarding({ open, onComplete, defaultName = "" }) {
           </button>
         ) : <div className="h-8 w-8 -ml-1" />}
         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-          <div className="h-full bg-maroon transition-all duration-300" style={{ width: `${((i + 1) / STEPS.length) * 100}%` }} />
+          <div className="h-full bar-accent transition-all duration-300" style={{ width: `${((i + 1) / STEPS.length) * 100}%` }} />
         </div>
         <button onClick={finish} className="text-sm text-muted-foreground hover:text-foreground">Skip</button>
       </div>

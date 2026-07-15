@@ -1,18 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "@/api";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Dumbbell, Cable, Cog, PersonStanding, Grip, CircleDot, Plus } from "lucide-react";
+import { Search, Dumbbell, Cable, Cog, PersonStanding, Grip, CircleDot, Plus, Info, Check } from "lucide-react";
 import { WORKOUT } from "@/constants/testIds";
 import { MuscleThumb } from "@/components/MuscleHeatmap";
+import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 
 const EQUIP_ICON = {
   barbell: Dumbbell, dumbbell: Dumbbell, machine: Cog, cable: Cable,
@@ -31,7 +33,21 @@ function pushRecent(ex) {
   } catch { /* ignore quota */ }
 }
 
-export default function ExercisePicker({ open, onClose, onPick }) {
+/**
+ * Exercise picker.
+ *  - multiSelect (default): tick any number of exercises, then "Add" them all in
+ *    one pass. onAdd(exercises[]) is called once.
+ *  - single mode (multiSelect=false): tap a row to pick one — onPick(exercise).
+ *    Used for "replace exercise" in a live session.
+ *  - existingIds: ids already in the target routine/day — shown as "Added" and
+ *    not selectable, so the same exercise can't be added twice.
+ *  - resetSignal: filters (muscle / equipment) PERSIST across reopens for the
+ *    whole routine-creation session; they only clear when this value changes
+ *    (parent bumps it when a brand-new routine/plan build starts).
+ */
+export default function ExercisePicker({
+  open, onClose, onAdd, onPick, existingIds = [], multiSelect = true, resetSignal,
+}) {
   const [exercises, setExercises] = useState([]);
   const [search, setSearch] = useState("");
   const [equipment, setEquipment] = useState("all");
@@ -41,9 +57,29 @@ export default function ExercisePicker({ open, onClose, onPick }) {
   const [form, setForm] = useState({ name: "", muscle_group: "", equipment: "", instructions: "" });
   const [saving, setSaving] = useState(false);
   const [recents, setRecents] = useState([]);
+  const [selected, setSelected] = useState({}); // id -> exercise object
+  const [detailEx, setDetailEx] = useState(null); // exercise to show full detail for
 
-  const handlePick = (ex) => { pushRecent(ex); onPick(ex); };
+  const existing = useMemo(() => new Set(existingIds), [existingIds]);
+  const selectedList = useMemo(() => Object.values(selected), [selected]);
   const showRecents = recents.length > 0 && !search && equipment === "all" && muscle === "all" && !creating;
+
+  const commit = (list) => {
+    if (!list.length) return;
+    list.forEach(pushRecent);
+    onAdd?.(list);
+    onClose();
+  };
+
+  const toggle = (ex) => {
+    if (existing.has(ex.id)) return;
+    if (!multiSelect) { pushRecent(ex); onPick?.(ex); return; }
+    setSelected((prev) => {
+      const next = { ...prev };
+      if (next[ex.id]) delete next[ex.id]; else next[ex.id] = ex;
+      return next;
+    });
+  };
 
   const saveCustom = async () => {
     if (!form.name.trim() || !form.muscle_group || !form.equipment) return;
@@ -52,21 +88,30 @@ export default function ExercisePicker({ open, onClose, onPick }) {
       const { data } = await api.post("/exercises", form);
       setCreating(false);
       setForm({ name: "", muscle_group: "", equipment: "", instructions: "" });
-      handlePick(data);
+      if (!multiSelect) { pushRecent(data); onPick?.(data); return; }
+      setSelected((prev) => ({ ...prev, [data.id]: data })); // stage it; user presses Add
     } finally {
       setSaving(false);
     }
   };
 
+  // On open: refresh library meta + recents, and clear transient state (search,
+  // create form, selection). Filters are intentionally NOT reset here so they
+  // survive closing/reopening the picker within one routine-creation session.
   useEffect(() => {
     if (!open) return;
     api.get("/exercises/meta").then(({ data }) => setMeta(data));
     setRecents(readRecents());
     setSearch("");
+    setCreating(false);
+    setSelected({});
+  }, [open]);
+
+  // New routine/plan build started → clear the persisted filters.
+  useEffect(() => {
     setEquipment("all");
     setMuscle("all");
-    setCreating(false);
-  }, [open]);
+  }, [resetSignal]);
 
   useEffect(() => {
     if (!open) return;
@@ -77,14 +122,78 @@ export default function ExercisePicker({ open, onClose, onPick }) {
     api.get("/exercises", { params }).then(({ data }) => setExercises(data));
   }, [open, search, equipment, muscle]);
 
+  const Row = ({ ex, size = 12 }) => {
+    const added = existing.has(ex.id);
+    const checked = !!selected[ex.id];
+    const Icon = EQUIP_ICON[ex.equipment] || Grip;
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        data-testid={WORKOUT.pickerExerciseItem}
+        onClick={() => toggle(ex)}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(ex); } }}
+        aria-disabled={added}
+        className={`w-full flex items-center gap-3 rounded-lg border px-2 py-2 text-left transition ${
+          added
+            ? "border-transparent opacity-55 cursor-default"
+            : checked
+              ? "border-maroon/60 bg-maroon/10 cursor-pointer"
+              : "border-transparent hover:border-maroon/40 hover:bg-muted/50 cursor-pointer"
+        }`}
+      >
+        {multiSelect && (
+          added
+            ? <span className="h-5 w-5 shrink-0 rounded-[4px] bg-maroon/70 text-white flex items-center justify-center"><Check className="h-3.5 w-3.5" /></span>
+            : <Checkbox checked={checked} className="shrink-0 pointer-events-none" tabIndex={-1} />
+        )}
+        {ex.image_url ? (
+          <img
+            src={ex.image_url}
+            alt=""
+            className="rounded object-cover bg-muted"
+            style={{ height: size * 4, width: size * 4 }}
+            onError={(e) => { e.currentTarget.style.opacity = 0.3; }}
+          />
+        ) : (
+          <div className="rounded bg-muted flex items-center justify-center" style={{ height: size * 4, width: size * 4 }}>
+            <Dumbbell className="h-5 w-5 text-muted-foreground" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate flex items-center gap-2">
+            {ex.name}
+            {added && <span className="text-[10px] uppercase tracking-wide text-maroon">Added</span>}
+          </div>
+          <div className="flex gap-1 mt-0.5">
+            <Badge variant="secondary" className="text-[10px] capitalize">{ex.muscle_group}</Badge>
+            <Badge variant="outline" className="text-[10px] capitalize">
+              <Icon className="h-3 w-3 mr-1 inline" />{ex.equipment}
+            </Badge>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setDetailEx(ex); }}
+          className="shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-maroon hover:bg-muted transition"
+          aria-label={`Details for ${ex.name}`}
+        >
+          <Info className="h-4 w-4" />
+        </button>
+      </div>
+    );
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-3xl flex flex-col max-h-[88vh]">
         <DialogHeader>
           <div className="flex items-center justify-between gap-2">
             <div>
               <DialogTitle>Add Exercises</DialogTitle>
-              <DialogDescription>Search, filter, and tap to add to your routine.</DialogDescription>
+              <DialogDescription>
+                {multiSelect ? "Search, filter, tick exercises, then add them all." : "Search, filter, and tap to pick."}
+              </DialogDescription>
             </div>
             <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
               <Plus className="h-4 w-4 mr-1" /> Create
@@ -132,7 +241,7 @@ export default function ExercisePicker({ open, onClose, onPick }) {
                 onClick={saveCustom}
                 className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
               >
-                {saving ? "Saving…" : "Save & add"}
+                {saving ? "Saving…" : multiSelect ? "Save & tick" : "Save & add"}
               </Button>
             </div>
           </div>
@@ -187,62 +296,44 @@ export default function ExercisePicker({ open, onClose, onPick }) {
           </Select>
         </div>
 
-        <div className="max-h-[55vh] overflow-y-auto -mx-2 px-2 space-y-1">
+        <div className="flex-1 overflow-y-auto -mx-2 px-2 space-y-1">
           {showRecents && (
             <>
               <div className="text-[11px] uppercase tracking-widest text-muted-foreground px-2 pt-1 pb-0.5">Recent</div>
-              {recents.map((ex) => (
-                <button
-                  key={`recent-${ex.id}`}
-                  onClick={() => handlePick(ex)}
-                  className="w-full flex items-center gap-3 rounded-lg border border-transparent hover:border-maroon/40 hover:bg-muted/50 px-2 py-2 text-left transition"
-                >
-                  {ex.image_url ? (
-                    <img src={ex.image_url} alt="" className="h-10 w-10 rounded object-cover bg-muted" onError={(e) => { e.currentTarget.style.opacity = 0.3; }} />
-                  ) : (
-                    <div className="h-10 w-10 rounded bg-muted flex items-center justify-center"><Dumbbell className="h-4 w-4 text-muted-foreground" /></div>
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{ex.name}</div>
-                    <div className="text-[11px] text-muted-foreground capitalize">{ex.muscle_group} · {ex.equipment}</div>
-                  </div>
-                </button>
-              ))}
+              {recents.map((ex) => <Row key={`recent-${ex.id}`} ex={ex} size={10} />)}
               <div className="text-[11px] uppercase tracking-widest text-muted-foreground px-2 pt-2 pb-0.5">All exercises</div>
             </>
           )}
-          {exercises.map((ex) => (
-            <button
-              key={ex.id}
-              data-testid={WORKOUT.pickerExerciseItem}
-              onClick={() => handlePick(ex)}
-              className="w-full flex items-center gap-3 rounded-lg border border-transparent hover:border-maroon/40 hover:bg-muted/50 px-2 py-2 text-left transition"
-            >
-              {ex.image_url ? (
-                <img
-                  src={ex.image_url}
-                  alt=""
-                  className="h-12 w-12 rounded object-cover bg-muted"
-                  onError={(e) => { e.currentTarget.style.opacity = 0.3; }}
-                />
-              ) : (
-                <div className="h-12 w-12 rounded bg-muted flex items-center justify-center">
-                  <Dumbbell className="h-5 w-5 text-muted-foreground" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{ex.name}</div>
-                <div className="flex gap-1 mt-0.5">
-                  <Badge variant="secondary" className="text-[10px] capitalize">{ex.muscle_group}</Badge>
-                  <Badge variant="outline" className="text-[10px] capitalize">{ex.equipment}</Badge>
-                </div>
-              </div>
-            </button>
-          ))}
+          {exercises.map((ex) => <Row key={ex.id} ex={ex} />)}
           {exercises.length === 0 && (
             <div className="text-center text-muted-foreground text-sm py-12">No exercises found.</div>
           )}
         </div>
+
+        {multiSelect && (
+          <DialogFooter className="sm:justify-between items-center gap-2">
+            <span className="text-sm text-muted-foreground">
+              {selectedList.length ? `${selectedList.length} selected` : "Tick exercises to add"}
+            </span>
+            <div className="flex gap-2">
+              <Button variant="ghost" onClick={onClose}>Cancel</Button>
+              <Button
+                disabled={!selectedList.length}
+                onClick={() => commit(selectedList)}
+                className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
+              >
+                {selectedList.length ? `Add ${selectedList.length}` : "Add"}
+              </Button>
+            </div>
+          </DialogFooter>
+        )}
+
+        <ExerciseDetailDialog
+          open={!!detailEx}
+          exercise={detailEx}
+          exerciseId={detailEx?.id}
+          onClose={() => setDetailEx(null)}
+        />
       </DialogContent>
     </Dialog>
   );

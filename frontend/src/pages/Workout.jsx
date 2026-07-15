@@ -25,9 +25,9 @@ import ExercisePicker from "@/components/ExercisePicker";
 import ProgramDetailDialog from "@/components/ProgramDetailDialog";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import SwipeToDismiss from "@/components/SwipeToDismiss";
-import { AnimatePresence } from "framer-motion";
 
-const DISMISSED_KEY = "lifeos:dismissed-programs";
+const RECO_DISMISSED_KEY = "lifeos:reco-dismissed";       // user dismissed the recommendation
+const BUILT_MANUALLY_KEY = "lifeos:built-manually";       // user has built a routine/plan by hand
 
 const EXPLORE_CATEGORIES = [
   { key: "home", label: "At home", icon: Home, test: (p) => p.equipment === "bodyweight" },
@@ -51,7 +51,6 @@ const WEEK_PRESETS = {
   4: ["Mon", "Tue", "Thu", "Fri"], 5: ["Mon", "Tue", "Wed", "Thu", "Fri"],
   6: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
 };
-const equipIcon = (equipment) => (equipment === "bodyweight" ? Home : Dumbbell);
 
 export default function Workout() {
   const navigate = useNavigate();
@@ -450,21 +449,24 @@ function WeekStrip({ workouts }) {
 }
 
 /* "Next up" hero — the app picks today's workout (most-rested plan day). */
-function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate, onExplore }) {
+function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate }) {
   const [pickOpen, setPickOpen] = useState(false);
   const [goalKey, setGoalKey] = useState(() => {
     try { return localStorage.getItem("lifeos:reco-goal") || null; } catch { return null; }
   }); // recommendation goal filter (empty state) — seeded from onboarding
-  const [dismissed, setDismissed] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(DISMISSED_KEY)) || []; } catch { return []; }
+  // Once the user dismisses the recommendation, we stop suggesting anything in
+  // this context — no auto-replacement, ever (persisted).
+  const [recoDismissed, setRecoDismissed] = useState(() => {
+    try { return localStorage.getItem(RECO_DISMISSED_KEY) === "1"; } catch { return false; }
   });
-  const dismissProgram = (id) => {
-    setDismissed((prev) => {
-      const next = [...new Set([...prev, id])];
-      try { localStorage.setItem(DISMISSED_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
+  const dismissRecommendation = () => {
+    setRecoDismissed(true);
+    try { localStorage.setItem(RECO_DISMISSED_KEY, "1"); } catch { /* ignore */ }
   };
+  // Set the first time the user builds a routine/plan by hand — after that the
+  // goal prompt + recommendation never appear again.
+  let builtManually = false;
+  try { builtManually = localStorage.getItem(BUILT_MANUALLY_KEY) === "1"; } catch { /* ignore */ }
 
   const trainedToday = (workouts || []).some(
     (w) => new Date(w.created_at).toDateString() === new Date().toDateString(),
@@ -493,31 +495,32 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
   };
 
   if (!target) {
+    const workoutsEmpty = (workouts?.length || 0) === 0;
+    // Only recommend on a genuinely fresh start (new user / full reset), and only
+    // until the user dismisses it or builds a routine/plan by hand.
+    const showReco = !builtManually && !recoDismissed && workoutsEmpty;
+    const freshStart = workoutsEmpty && !builtManually;
+
     const activeGoal = RECO_GOALS.find((g) => g.key === goalKey);
     const inGoal = activeGoal ? programs.filter((p) => activeGoal.goals.includes(p.goal)) : programs;
-    const pool = inGoal.filter((p) => !dismissed.includes(p.id)); // hide swiped-away programs
-    const recommended = pool.find((p) => p.level === "beginner") || pool[0] || null;
-    const more = (recommended ? pool.filter((p) => p.id !== recommended.id) : []).slice(0, 2);
+    const recommended = showReco ? (inGoal.find((p) => p.level === "beginner") || inGoal[0] || null) : null;
     const weekDays = recommended ? WEEK_PRESETS[recommended.routines?.length] || [] : [];
 
-    // No recommendation to show — either no programs loaded, or the user dismissed them all.
+    // Nothing to recommend (or recommendation dismissed / user has history) → plain empty state.
     if (!recommended) {
-      const allDismissed = dismissed.length > 0 && inGoal.length > 0;
       return (
         <Card className="p-8 text-center border-dashed">
           <Dumbbell className="h-8 w-8 mx-auto text-maroon" />
-          <h3 className="mt-3 font-semibold">{allDismissed ? "No more recommendations" : "Nothing queued yet"}</h3>
-          <p className="text-sm text-muted-foreground mt-1 mb-4">
-            {allDismissed ? "You've dismissed them all." : "Create a routine to get started."}
-          </p>
+          <h3 className="mt-3 font-semibold">Nothing queued yet</h3>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">Create a routine to get started.</p>
           <div className="flex gap-2 justify-center">
-            {allDismissed && (
+            {recoDismissed && freshStart && (
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setDismissed([]); try { localStorage.removeItem(DISMISSED_KEY); } catch { /* ignore */ } }}
+                onClick={() => { setRecoDismissed(false); try { localStorage.removeItem(RECO_DISMISSED_KEY); } catch { /* ignore */ } }}
               >
-                Show them again
+                Show recommendation
               </Button>
             )}
             <Button size="sm" onClick={onCreate} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
@@ -553,7 +556,8 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
           </div>
         </div>
 
-        <SwipeToDismiss onDismiss={() => dismissProgram(recommended.id)} className="group">
+        {/* One best-fit recommendation. Swipe/dismiss → we stop suggesting entirely. */}
+        <SwipeToDismiss onDismiss={dismissRecommendation} className="group">
         <Card className="relative overflow-hidden p-5 border-[hsl(var(--maroon)/0.35)]">
           <span className="absolute left-0 top-0 bottom-0 w-[3px] bg-maroon" />
           <div className="flex items-center gap-1.5 mb-2">
@@ -585,43 +589,6 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
           </Button>
         </Card>
         </SwipeToDismiss>
-
-        {more.length > 0 && (
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[11px] uppercase tracking-widest text-muted-foreground font-semibold">More programs</span>
-              <button onClick={onExplore} className="text-[11px] text-maroon hover:underline">See all {programs.length}</button>
-            </div>
-            <p className="text-[10px] text-muted-foreground mb-2">Swipe a card away to hide it.</p>
-            <div className="space-y-2">
-              <AnimatePresence initial={false}>
-                {more.map((p) => {
-                  const EqIcon = equipIcon(p.equipment);
-                  return (
-                    <SwipeToDismiss key={p.id} onDismiss={() => dismissProgram(p.id)} className="group">
-                      <button
-                        onClick={() => onOpenProgram?.(p.id)}
-                        className="w-full flex items-center gap-3 rounded-xl border border-border bg-card p-3 text-left hover:border-[hsl(var(--maroon)/0.5)] transition"
-                      >
-                        <span className="h-9 w-9 rounded-lg bg-[hsl(var(--maroon)/0.12)] flex items-center justify-center shrink-0">
-                          <EqIcon className="h-4 w-4 text-maroon" />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{p.name}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <Badge variant="secondary" className="text-[9px] capitalize">{p.level}</Badge>
-                            <span className="text-[10px] text-muted-foreground capitalize">{p.equipment} · {p.duration_weeks} wks</span>
-                          </div>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0 mr-5" />
-                      </button>
-                    </SwipeToDismiss>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -894,14 +861,20 @@ function RoutineBuilder({ open, onClose, onSaved }) {
   const [name, setName] = useState("");
   const [exercises, setExercises] = useState([]); // [{exercise, sets, reps}]
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [buildId, setBuildId] = useState(0); // bumps each new build → picker filters reset
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) { setName(""); setExercises([]); }
+    if (open) { setName(""); setExercises([]); setBuildId((n) => n + 1); }
   }, [open]);
 
-  const addExercise = (ex) => {
-    setExercises((arr) => [...arr, { exercise: ex, sets: 3, reps: 10 }]);
+  // Add one or many at once; skip anything already in the routine (no duplicates).
+  const addExercises = (list) => {
+    setExercises((arr) => {
+      const have = new Set(arr.map((r) => r.exercise.id));
+      const fresh = list.filter((ex) => !have.has(ex.id)).map((ex) => ({ exercise: ex, sets: 3, reps: 10 }));
+      return [...arr, ...fresh];
+    });
   };
 
   const removeExercise = (idx) => {
@@ -921,6 +894,7 @@ function RoutineBuilder({ open, onClose, onSaved }) {
           notes: "",
         })),
       });
+      try { localStorage.setItem(BUILT_MANUALLY_KEY, "1"); } catch { /* ignore */ }
       onSaved();
     } finally {
       setSaving(false);
@@ -1009,7 +983,9 @@ function RoutineBuilder({ open, onClose, onSaved }) {
         <ExercisePicker
           open={pickerOpen}
           onClose={() => setPickerOpen(false)}
-          onPick={(ex) => { addExercise(ex); setPickerOpen(false); }}
+          onAdd={addExercises}
+          existingIds={exercises.map((r) => r.exercise.id)}
+          resetSignal={buildId}
         />
       </DialogContent>
     </Dialog>
@@ -1024,10 +1000,11 @@ function PlanBuilder({ open, onClose, onSaved }) {
   const [name, setName] = useState("");
   const [days, setDays] = useState([]); // [{ name, exercises: [{exercise, sets, reps}] }]
   const [picker, setPicker] = useState(null); // { dayIdx } | null
+  const [buildId, setBuildId] = useState(0); // bumps each new build → picker filters reset
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (open) { setName(""); setDays([{ name: "Day 1", exercises: [] }]); }
+    if (open) { setName(""); setDays([{ name: "Day 1", exercises: [] }]); setBuildId((n) => n + 1); }
   }, [open]);
 
   const addDay = () =>
@@ -1048,9 +1025,15 @@ function PlanBuilder({ open, onClose, onSaved }) {
       return copy;
     });
 
-  const addExerciseToDay = (dayIdx, ex) =>
+  // Add one or many to a day at once; skip any already in that day (no duplicates per day).
+  const addExercisesToDay = (dayIdx, list) =>
     setDays((arr) =>
-      arr.map((d, i) => (i === dayIdx ? { ...d, exercises: [...d.exercises, { exercise: ex, sets: 3, reps: 10 }] } : d)),
+      arr.map((d, i) => {
+        if (i !== dayIdx) return d;
+        const have = new Set(d.exercises.map((e) => e.exercise.id));
+        const fresh = list.filter((ex) => !have.has(ex.id)).map((ex) => ({ exercise: ex, sets: 3, reps: 10 }));
+        return { ...d, exercises: [...d.exercises, ...fresh] };
+      }),
     );
 
   const patchExercise = (dayIdx, exIdx, patch) =>
@@ -1085,6 +1068,7 @@ function PlanBuilder({ open, onClose, onSaved }) {
           })),
         })),
       });
+      try { localStorage.setItem(BUILT_MANUALLY_KEY, "1"); } catch { /* ignore */ }
       onSaved();
     } finally {
       setSaving(false);
@@ -1230,7 +1214,9 @@ function PlanBuilder({ open, onClose, onSaved }) {
         <ExercisePicker
           open={picker !== null}
           onClose={() => setPicker(null)}
-          onPick={(ex) => { if (picker) addExerciseToDay(picker.dayIdx, ex); setPicker(null); }}
+          onAdd={(list) => { if (picker) addExercisesToDay(picker.dayIdx, list); }}
+          existingIds={picker ? (days[picker.dayIdx]?.exercises || []).map((e) => e.exercise.id) : []}
+          resetSignal={buildId}
         />
       </DialogContent>
     </Dialog>

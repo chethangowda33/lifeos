@@ -514,19 +514,21 @@ export default function WorkoutSession() {
     };
   };
 
+  // Replace mode → single pick swaps one exercise in place.
   const onPickExercise = async (picked) => {
-    const mode = picker?.mode;
     const replaceUid = picker?.uid;
     setPicker(null);
-    if (mode === "replace") {
-      const target = exercises.find((e) => e.uid === replaceUid);
-      const built = await buildExercise(picked, target ? target.sets.length : 1, replaceUid);
-      setExercises((arr) => arr.map((e) => (e.uid === replaceUid ? built : e)));
-      toast({ title: "Exercise replaced", description: picked.name });
-    } else {
-      const built = await buildExercise(picked, 1);
-      setExercises((arr) => [...arr, built]);
-    }
+    const target = exercises.find((e) => e.uid === replaceUid);
+    const built = await buildExercise(picked, target ? target.sets.length : 1, replaceUid);
+    setExercises((arr) => arr.map((e) => (e.uid === replaceUid ? built : e)));
+    toast({ title: "Exercise replaced", description: picked.name });
+  };
+
+  // Add mode → add one or many exercises at once.
+  const onAddExercises = async (list) => {
+    setPicker(null);
+    const built = await Promise.all(list.map((ex) => buildExercise(ex, 1)));
+    setExercises((arr) => [...arr, ...built]);
   };
 
   const removeExercise = (uid) => {
@@ -889,7 +891,9 @@ export default function WorkoutSession() {
       <ExercisePicker
         open={!!picker}
         onClose={() => setPicker(null)}
+        multiSelect={picker?.mode !== "replace"}
         onPick={onPickExercise}
+        onAdd={onAddExercises}
       />
 
       {/* Plate calculator */}
@@ -1380,10 +1384,10 @@ function SetRow({
       <button
         data-testid={SESSION.completeSetButton}
         onClick={onToggleComplete}
-        className={`h-7 w-7 mx-auto rounded-md flex items-center justify-center transition border ${
+        className={`h-7 w-7 mx-auto rounded-md flex items-center justify-center transition-all duration-150 active:scale-90 border ${
           completed
-            ? "bg-green-600 text-white border-green-600"
-            : "bg-muted border-border hover:border-[hsl(var(--maroon)/0.4)]"
+            ? "bg-green-600 text-white border-green-600 shadow-[0_0_12px_-2px_rgba(22,163,74,0.7)]"
+            : "bg-muted border-border hover:border-[hsl(var(--maroon)/0.5)] hover:text-maroon"
         }`}
       >
         <Check className="h-4 w-4" />

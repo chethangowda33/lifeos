@@ -101,7 +101,7 @@ export default function Habits() {
                       <span
                         key={d}
                         title={d}
-                        className={`h-2.5 w-2.5 rounded-[3px] ${h.history?.[d] ? "bg-maroon" : "bg-muted"}`}
+                        className={`h-2.5 w-2.5 rounded-[3px] transition-colors ${h.history?.[d] ? "bar-accent" : "bg-muted"}`}
                       />
                     ))}
                   </div>
@@ -124,8 +124,8 @@ export default function Habits() {
                   <button
                     onClick={() => toggleCheck(h)}
                     aria-label="Toggle habit"
-                    className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 border transition ${
-                      h.today_done ? "bg-maroon border-transparent text-white" : "border-border text-muted-foreground hover:border-[hsl(var(--maroon)/0.5)]"
+                    className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 border transition-all duration-200 active:scale-90 ${
+                      h.today_done ? "bg-gradient-to-br from-[hsl(var(--maroon))] to-[hsl(var(--maroon-hover))] border-transparent text-white elev-accent scale-105" : "border-border text-muted-foreground hover:border-[hsl(var(--maroon)/0.5)] hover:text-maroon"
                     }`}
                   >
                     <Check className="h-4 w-4" />

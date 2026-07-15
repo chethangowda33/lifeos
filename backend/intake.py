@@ -98,6 +98,15 @@ ANALYZE_SYSTEM = (
     "sambar, poha, upma, curd rice, ghee, chutney. Assume home-style Indian cooking "
     "(and its typical oil/ghee content) unless the image says otherwise.\n"
     "- Return ONE item per distinct food on the plate. A thali is several items, not one.\n"
+    "- COUNTABLE FOODS (dosa, chapati/roti, idli, vada, egg, banana, bread slice, paratha): set "
+    "unit_count to the NUMBER OF PIECES and give every nutrient PER SINGLE PIECE — the app multiplies "
+    "by unit_count. Name the food without the count ('Ragi dosa', not '3 dosa'); serving describes one "
+    "piece. Example: '3 ragi dosa' → name 'Ragi dosa', unit_count 3, ~150 kcal / 4g protein per piece.\n"
+    "- NON-COUNTABLE FOODS measured by mass/volume (rice, dal, curry, chutney, sambar, poha, upma): set "
+    "unit_count to 1 and give nutrients for the WHOLE portion.\n"
+    "- Calibrate to real Indian values: a medium ragi dosa is ~120-160 kcal (not 70); a small bowl of "
+    "coconut chutney is ~90-130 kcal (coconut + oil, it is NOT low-cal); plain chapati ~70-90 kcal each. "
+    "Do not under-count oil/ghee. Be consistent — the same described food should give the same numbers.\n"
     "- Every nutrient field is required. Estimate it — never return null and never omit it. "
     "Use 0 only when the food genuinely contains none.\n"
     "- confidence: 'high' when the food and portion are unambiguous, 'medium' when the "
@@ -109,15 +118,16 @@ ANALYZE_SYSTEM = (
 
 # Structured output schema — guarantees parseable JSON, no regex salvage needed.
 _ITEM_PROPS: Dict[str, Any] = {
-    "name": {"type": "string", "description": "Short food name, e.g. '2 chapati' or 'Paneer butter masala'"},
-    "serving": {"type": "string", "description": "The portion you estimated, e.g. '1 medium bowl (200g)'"},
+    "name": {"type": "string", "description": "Food name WITHOUT the count for countable foods, e.g. 'Chapati' or 'Ragi dosa' (not '3 dosa'); 'Paneer butter masala' for non-countable."},
+    "serving": {"type": "string", "description": "For countable foods, the size of ONE piece, e.g. '1 medium dosa (~90g)'. For non-countable foods, the whole portion, e.g. '1 medium bowl (200g)'."},
+    "unit_count": {"type": "integer", "description": "Number of discrete pieces the user has for countable foods (e.g. 3 for '3 dosa'). Use 1 for foods measured by mass/volume (rice, dal, curry, chutney, a bowl/plate of something)."},
     "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
     "notes": {"type": "string", "description": "One sentence on assumptions made"},
 }
 for _n in NUTRIENTS:
     _ITEM_PROPS[_n["key"]] = {
         "type": "number",
-        "description": f"{_n['label']} in {_n['unit']} for this portion",
+        "description": f"{_n['label']} in {_n['unit']} for ONE piece when unit_count > 1 (the app multiplies by unit_count); otherwise for the whole portion.",
     }
 
 ANALYZE_SCHEMA: Dict[str, Any] = {
@@ -128,7 +138,7 @@ ANALYZE_SCHEMA: Dict[str, Any] = {
             "items": {
                 "type": "object",
                 "properties": _ITEM_PROPS,
-                "required": ["name", "serving", "confidence", "notes"] + NUTRIENT_KEYS,
+                "required": ["name", "serving", "unit_count", "confidence", "notes"] + NUTRIENT_KEYS,
                 "additionalProperties": False,
             },
         },
@@ -408,10 +418,17 @@ def _clean_item(raw: Dict[str, Any]) -> Dict[str, Any]:
             return 0.0
         return round(f, 2)
 
+    try:
+        unit_count = int(float(raw.get("unit_count", 1)))
+    except (TypeError, ValueError):
+        unit_count = 1
+    unit_count = max(1, min(unit_count, 50))  # sane bounds; the app multiplies by this
+
     conf = str(raw.get("confidence", "medium")).lower()
     return {
         "name": str(raw.get("name") or "Food").strip()[:120],
         "serving": str(raw.get("serving") or "").strip()[:120],
+        "unit_count": unit_count,
         "confidence": conf if conf in ("high", "medium", "low") else "medium",
         "notes": str(raw.get("notes") or "").strip()[:300],
         "nutrients": {k: num(k) for k in NUTRIENT_KEYS},

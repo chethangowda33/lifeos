@@ -69,8 +69,16 @@ export default function AnalyzeDialog({ open, onClose, onSaved, meta, date, defa
         );
         return;
       }
-      // Every item starts selected and at quantity 1 — the common case is "yes, all of it".
-      setResult({ ...data, items: data.items.map((i) => ({ ...i, selected: true, quantity: 1 })) });
+      // Every item starts selected. QTY is seeded from unit_count so countable foods
+      // (e.g. "3 dosa") show quantity 3 with per-piece macros — edit the count directly.
+      setResult({
+        ...data,
+        items: data.items.map((i) => ({
+          ...i,
+          selected: true,
+          quantity: String(i.unit_count && i.unit_count > 0 ? i.unit_count : 1),
+        })),
+      });
     } catch (err) {
       setError(formatApiErrorDetail(err.response?.data?.detail) || "Analysis failed. Try again.");
     } finally {
@@ -86,10 +94,17 @@ export default function AnalyzeDialog({ open, onClose, onSaved, meta, date, defa
 
   const chosen = result?.items.filter((i) => i.selected) || [];
 
+  // Quantity is held as a raw string (so the field can be cleared / partially typed).
+  // Treat empty / invalid as 0 for live math; blur normalizes it back to a real number.
+  const qtyNum = (q) => {
+    const n = parseFloat(q);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  };
+
   // Live total of what's about to be logged, so the number the user sees on the
   // confirm button is the number that lands in the tracker.
   const previewTotals = HEADLINE.reduce((acc, key) => {
-    acc[key] = chosen.reduce((s, i) => s + (i.nutrients[key] || 0) * i.quantity, 0);
+    acc[key] = chosen.reduce((s, i) => s + (i.nutrients[key] || 0) * qtyNum(i.quantity), 0);
     return acc;
   }, {});
 
@@ -103,7 +118,7 @@ export default function AnalyzeDialog({ open, onClose, onSaved, meta, date, defa
           meal,
           date,
           serving: item.serving,
-          quantity: item.quantity,
+          quantity: qtyNum(item.quantity) || 1,
           source: tab === "photo" ? "photo" : "text",
           confidence: item.confidence,
           notes: item.notes,
@@ -249,7 +264,7 @@ export default function AnalyzeDialog({ open, onClose, onSaved, meta, date, defa
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[11px] tabular-nums">
                         {HEADLINE.map((key) => {
                           const n = meta.nutrients.find((x) => x.key === key);
-                          const v = (item.nutrients[key] || 0) * item.quantity;
+                          const v = (item.nutrients[key] || 0) * qtyNum(item.quantity);
                           return (
                             <span key={key} className="text-muted-foreground">
                               <span className="text-foreground font-semibold">
@@ -271,13 +286,19 @@ export default function AnalyzeDialog({ open, onClose, onSaved, meta, date, defa
                         Qty
                       </label>
                       <Input
-                        type="number"
-                        min="0.25"
-                        step="0.25"
+                        type="text"
+                        inputMode="decimal"
                         value={item.quantity}
-                        onChange={(e) =>
-                          patchItem(idx, { quantity: Math.max(Number(e.target.value) || 0.25, 0.25) })
-                        }
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          // Allow empty or a partial decimal while typing (so it's fully
+                          // clearable and you can enter 0.5, 2, etc.). Normalized on blur.
+                          if (raw === "" || /^\d*\.?\d*$/.test(raw)) patchItem(idx, { quantity: raw });
+                        }}
+                        onBlur={() => {
+                          const n = parseFloat(item.quantity);
+                          patchItem(idx, { quantity: Number.isFinite(n) && n > 0 ? String(n) : "1" });
+                        }}
                         className="h-8 w-16 text-center px-1"
                         aria-label={`Servings of ${item.name}`}
                       />
