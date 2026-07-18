@@ -254,39 +254,34 @@ export default function Workout() {
         onExplore={() => setView("explore")}
       />
 
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <button
           data-testid={SESSION.startEmptyButton}
           onClick={() => navigate("/workout/session/empty")}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-3 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <Plus className="h-3.5 w-3.5" /> Empty
         </button>
         <button
           data-testid={WORKOUT.newRoutineButton}
           onClick={() => setBuilderOpen(true)}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-3 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <ClipboardList className="h-3.5 w-3.5" /> New routine
         </button>
         <button
+          data-testid={WORKOUT.newPlanButton}
+          onClick={() => setPlanBuilderOpen(true)}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-3 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <Layers className="h-3.5 w-3.5" /> New plan
+        </button>
+        <button
           data-testid={WORKOUT.exploreButton}
           onClick={() => setView("explore")}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-2.5 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-card px-2 py-3 hover:border-[hsl(var(--maroon)/0.5)] transition text-xs font-medium text-muted-foreground hover:text-foreground"
         >
           <Search className="h-3.5 w-3.5" /> Explore
-        </button>
-      </div>
-
-      <div className="flex items-center justify-between -mb-2">
-        <h2 className="text-xs uppercase tracking-widest text-muted-foreground font-semibold">Library</h2>
-        <button
-          data-testid={WORKOUT.newPlanButton}
-          title="New plan (folder of days)"
-          onClick={() => setPlanBuilderOpen(true)}
-          className="text-muted-foreground hover:text-foreground p-1.5 rounded-md hover:bg-muted transition"
-        >
-          <Layers className="h-4 w-4" />
         </button>
       </div>
 
@@ -734,12 +729,22 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown }) {
                     {day.exercises?.length || 0} exercises · {n === Infinity ? "not trained yet" : `trained ${recencyLabel(day.last_completed_at)}`}
                   </div>
                 </div>
-                <div className="flex flex-col opacity-0 group-hover:opacity-100 transition">
-                  <button onClick={() => onReorder(di, -1)} disabled={di === 0} className="text-muted-foreground hover:text-foreground disabled:opacity-20" aria-label="Move day up">
-                    <ArrowUp className="h-3 w-3" />
+                <div className="flex flex-col shrink-0">
+                  <button
+                    onClick={() => onReorder(di, -1)}
+                    disabled={di === 0}
+                    className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
+                    aria-label="Move day up"
+                  >
+                    <ArrowUp className="h-4 w-4" />
                   </button>
-                  <button onClick={() => onReorder(di, +1)} disabled={di === days.length - 1} className="text-muted-foreground hover:text-foreground disabled:opacity-20" aria-label="Move day down">
-                    <ArrowDown className="h-3 w-3" />
+                  <button
+                    onClick={() => onReorder(di, +1)}
+                    disabled={di === days.length - 1}
+                    className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
+                    aria-label="Move day down"
+                  >
+                    <ArrowDown className="h-4 w-4" />
                   </button>
                 </div>
                 <Button
@@ -1104,18 +1109,18 @@ function PlanBuilder({ open, onClose, onSaved }) {
                     <button
                       onClick={() => moveDay(di, -1)}
                       disabled={di === 0}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-20"
+                      className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
                       aria-label="Move day up"
                     >
-                      <ArrowUp className="h-3.5 w-3.5" />
+                      <ArrowUp className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => moveDay(di, +1)}
                       disabled={di === days.length - 1}
-                      className="text-muted-foreground hover:text-foreground disabled:opacity-20"
+                      className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
                       aria-label="Move day down"
                     >
-                      <ArrowDown className="h-3.5 w-3.5" />
+                      <ArrowDown className="h-4 w-4" />
                     </button>
                   </div>
                   <Input

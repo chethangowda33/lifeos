@@ -1202,14 +1202,16 @@ function ExerciseSessionCard({
       {/* Set table */}
       <div className="mt-4 overflow-x-auto">
         {(() => {
+          // Mobile-first column widths — the old fixed widths overflowed a phone,
+          // which collapsed "Previous" to nothing and squeezed RPE out.
           const gridCls = ex.time_based
-            ? "grid-cols-[36px_1fr_1fr_70px_36px_32px]"
+            ? "grid-cols-[26px_minmax(46px,1fr)_1fr_52px_30px_24px] sm:grid-cols-[36px_1fr_1fr_70px_36px_32px]"
             : showRpe
-              ? "grid-cols-[36px_1fr_60px_60px_44px_36px_32px]"
-              : "grid-cols-[36px_1fr_60px_60px_36px_32px]";
+              ? "grid-cols-[24px_minmax(44px,1fr)_48px_44px_38px_30px_24px] sm:grid-cols-[36px_1fr_60px_60px_44px_36px_32px]"
+              : "grid-cols-[26px_minmax(54px,1fr)_54px_50px_30px_24px] sm:grid-cols-[36px_1fr_60px_60px_36px_32px]";
           return (
             <>
-              <div className={`grid ${gridCls} gap-2 text-[10px] uppercase tracking-widest text-muted-foreground pb-2 border-b border-border`}>
+              <div className={`grid ${gridCls} gap-1 sm:gap-2 text-[10px] uppercase tracking-widest text-muted-foreground pb-2 border-b border-border`}>
                 <span>Set</span>
                 <span>Previous</span>
                 {ex.time_based ? (
@@ -1279,7 +1281,9 @@ function SetRow({
   const prevTxt = set.previous
     ? (timeBased
         ? `${fmtClock(set.previous.duration_seconds || 0)}${set.previous.distance_m ? ` · ${set.previous.distance_m}m` : ""}`
-        : `${set.previous.kg ?? "-"} kg × ${set.previous.reps ?? "-"}`)
+        // Compact ("60×10") so it stays readable in the narrow phone column —
+        // "60 kg × 10" used to overflow and truncate to a meaningless "0".
+        : `${set.previous.kg ?? "-"}×${set.previous.reps ?? "-"}`)
     : "—";
   const completed = set.completed;
   // Beat last time? (higher volume, or longer for time-based)
@@ -1300,7 +1304,7 @@ function SetRow({
   return (
     <div
       data-testid={SESSION.setRow}
-      className={`grid ${gridCls} gap-2 items-center py-1.5 transition-colors ${completed ? "bg-green-500/10" : ""}`}
+      className={`grid ${gridCls} gap-1 sm:gap-2 items-center py-1.5 transition-colors ${completed ? "bg-green-500/10" : ""}`}
     >
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -1347,7 +1351,7 @@ function SetRow({
               value={set.duration_seconds ?? ""}
               onChange={(e) => onUpdate({ duration_seconds: e.target.value })}
               placeholder="sec"
-              className="h-8 text-center"
+              className="h-8 text-center px-1"
             />
             {inlineTimer && (
               <button
@@ -1366,7 +1370,7 @@ function SetRow({
             value={set.distance_m ?? ""}
             onChange={(e) => onUpdate({ distance_m: e.target.value })}
             placeholder="—"
-            className="h-8 text-center text-xs"
+            className="h-8 text-center text-xs px-1"
           />
         </>
       ) : (
@@ -1381,7 +1385,7 @@ function SetRow({
               onBlur={(e) => onUpdate({ kg: e.target.value })}
               placeholder={bodyweight ? "BW" : "0"}
               title={bodyweight ? "Added weight on top of bodyweight (leave blank for bodyweight only)" : undefined}
-              className="h-8 text-center"
+              className="h-8 text-center px-1"
             />
             {onOpenPlateCalc && (
               <button
@@ -1401,7 +1405,7 @@ function SetRow({
             onChange={(e) => onUpdate({ reps: e.target.value })}
             onBlur={(e) => onUpdate({ reps: e.target.value })}
             placeholder="0"
-            className="h-8 text-center"
+            className="h-8 text-center px-1"
           />
           {showRpe && (
             <Input
@@ -1413,7 +1417,7 @@ function SetRow({
               min={6}
               max={10}
               step={0.5}
-              className="h-8 text-center text-xs"
+              className="h-8 text-center text-xs px-1"
             />
           )}
         </>
