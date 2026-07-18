@@ -24,6 +24,8 @@ import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import ShareWorkoutButton from "@/components/ShareWorkoutCard";
 import IntervalTimer from "@/components/IntervalTimer";
 import ExercisePicker from "@/components/ExercisePicker";
+import { buildWorkoutPayload, describeApiError } from "@/features/workout/lib/payload";
+import { sessionStats } from "@/features/workout/lib/stats";
 import confetti from "canvas-confetti";
 import { SESSION } from "@/constants/testIds";
 
@@ -361,15 +363,7 @@ export default function WorkoutSession() {
   }, []);
 
   const durationSecs = Math.floor((now - startedAt) / 1000);
-  const stats = useMemo(() => {
-    let sets = 0;
-    let volume = 0;
-    for (const ex of exercises) for (const s of ex.sets) if (s.completed) {
-      sets += 1;
-      if (s.kg && s.reps) volume += s.kg * s.reps;
-    }
-    return { sets, volume };
-  }, [exercises]);
+  const stats = useMemo(() => sessionStats(exercises), [exercises]);
 
   const setEx = (i, fn) =>
     setExercises((arr) => arr.map((e, idx) => (idx === i ? fn(e) : e)));
@@ -584,42 +578,9 @@ export default function WorkoutSession() {
   // Save flow
   const submitSave = async () => {
     setSaving(true);
-    // Coerce user input to the exact types the API validates against, so a stray
-    // string / decimal / empty field never 422s the whole save.
-    const numOrNull = (v) => {
-      if (v === "" || v == null) return null;
-      const n = Number(v);
-      return Number.isFinite(n) ? n : null;
-    };
-    const intOrNull = (v) => {
-      const n = numOrNull(v);
-      return n == null ? null : Math.round(n);
-    };
-    const workoutPayload = {
-      name,
-      routine_id: routineId && routineId !== "empty" ? routineId : null,
-      plan_id: planId || null,
-      day_index: planId && Number.isFinite(Number(dayIndex)) ? Number(dayIndex) : null,
-      duration_seconds: intOrNull(durationSecs) || 0,
-      description,
-      // Drop any exercise without a valid id — the API requires exercise_id.
-      exercises: exercises.filter((ex) => ex.exercise_id).map((ex) => ({
-        exercise_id: ex.exercise_id,
-        notes: ex.notes || "",
-        rest_timer_seconds: intOrNull(ex.rest_timer_seconds) ?? 90, // required int, never null
-        superset_group_id: ex.superset_group_id || null,
-        target_reps: intOrNull(ex.target_reps),
-        sets: ex.sets.map((s) => ({
-          set_type: s.set_type || "working",
-          kg: numOrNull(s.kg),
-          reps: intOrNull(s.reps),
-          duration_seconds: intOrNull(s.duration_seconds),
-          distance_m: numOrNull(s.distance_m),
-          rpe: numOrNull(s.rpe),
-          completed: !!s.completed,
-        })),
-      })),
-    };
+    const workoutPayload = buildWorkoutPayload({
+      name, description, durationSecs, routineId, planId, dayIndex, exercises,
+    });
     const routinePayload = {
       name,
       exercises: exercises.map((ex) => ({
@@ -664,15 +625,7 @@ export default function WorkoutSession() {
         finishLocal(null);
       } else {
         // Surface the real validation error (which field) instead of a bare "422".
-        const detail = e.response?.data?.detail;
-        let msg = String(e.message || e);
-        if (Array.isArray(detail) && detail[0]) {
-          const loc = (detail[0].loc || []).slice(-2).join(" ");
-          msg = `${loc}: ${detail[0].msg}`;
-        } else if (typeof detail === "string") {
-          msg = detail;
-        }
-        toast({ title: "Could not save", description: msg, variant: "destructive" });
+        toast({ title: "Could not save", description: describeApiError(e), variant: "destructive" });
       }
     } finally {
       setSaving(false);

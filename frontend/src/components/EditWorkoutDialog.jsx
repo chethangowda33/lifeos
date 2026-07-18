@@ -9,17 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Check } from "lucide-react";
 import ExercisePicker from "@/components/ExercisePicker";
 import { useToast } from "@/hooks/use-toast";
-
-// Same coercion the live session uses, so an edit never 422s on a stray value.
-const numOrNull = (v) => {
-  if (v === "" || v == null) return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-const intOrNull = (v) => {
-  const n = numOrNull(v);
-  return n == null ? null : Math.round(n);
-};
+import { buildWorkoutPayload, describeApiError } from "@/features/workout/lib/payload";
 
 const GRID = "grid grid-cols-[1.5rem_1fr_1fr_2rem_1.5rem] gap-2 items-center";
 
@@ -75,38 +65,18 @@ export default function EditWorkoutDialog({ workout, open, onClose, onSaved }) {
   const save = async () => {
     setSaving(true);
     try {
-      const payload = {
-        name: name.trim() || "Workout",
+      const payload = buildWorkoutPayload({
+        name,
         description,
-        duration_seconds: workout.duration_seconds || 0,
-        exercises: exercises.filter((ex) => ex.exercise_id).map((ex) => ({
-          exercise_id: ex.exercise_id,
-          notes: ex.notes || "",
-          rest_timer_seconds: intOrNull(ex.rest_timer_seconds) ?? 90,
-          superset_group_id: ex.superset_group_id || null,
-          target_reps: intOrNull(ex.target_reps),
-          sets: ex.sets.map((s) => ({
-            set_type: s.set_type || "working",
-            kg: numOrNull(s.kg),
-            reps: intOrNull(s.reps),
-            duration_seconds: intOrNull(s.duration_seconds),
-            distance_m: numOrNull(s.distance_m),
-            rpe: numOrNull(s.rpe),
-            completed: !!s.completed,
-          })),
-        })),
-      };
+        durationSecs: workout.duration_seconds || 0,
+        exercises,
+      });
       await api.put(`/workouts/${workout.id}`, payload);
       toast({ title: "Workout updated" });
       onSaved?.();
       onClose();
     } catch (e) {
-      const detail = e.response?.data?.detail;
-      let msg = String(e.message || e);
-      if (Array.isArray(detail) && detail[0]) {
-        msg = `${(detail[0].loc || []).slice(-2).join(" ")}: ${detail[0].msg}`;
-      } else if (typeof detail === "string") msg = detail;
-      toast({ title: "Couldn't save changes", description: msg, variant: "destructive" });
+      toast({ title: "Couldn't save changes", description: describeApiError(e), variant: "destructive" });
     } finally {
       setSaving(false);
     }
