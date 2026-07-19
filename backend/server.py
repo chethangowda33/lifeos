@@ -572,6 +572,20 @@ async def create_custom_exercise(payload: CustomExerciseIn, user=Depends(get_cur
     return doc
 
 
+@api.delete("/exercises/{exercise_id}")
+async def delete_custom_exercise(exercise_id: str, user=Depends(get_current_user)):
+    """Delete one of YOUR custom exercises. Library exercises (no user_id) are
+    never deletable — the filter on user_id makes that impossible."""
+    try:
+        oid = ObjectId(exercise_id)
+    except Exception:
+        raise HTTPException(404, "Exercise not found")
+    res = await db.exercises.delete_one({"_id": oid, "user_id": str(user["_id"]), "custom": True})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Custom exercise not found")
+    return {"ok": True}
+
+
 @api.get("/exercises/meta")
 async def exercises_meta():
     muscle_groups = sorted(m for m in await db.exercises.distinct("muscle_group") if m)

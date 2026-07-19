@@ -11,7 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { Search, Dumbbell, Cable, Cog, PersonStanding, Grip, CircleDot, Plus, Info, Check } from "lucide-react";
+import { Search, Dumbbell, Cable, Cog, PersonStanding, Grip, CircleDot, Plus, Info, Check, Trash2 } from "lucide-react";
 import { WORKOUT } from "@/constants/testIds";
 import { MuscleThumb } from "@/components/MuscleHeatmap";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
@@ -72,6 +72,21 @@ export default function ExercisePicker({
     list.forEach(pushRecent);
     onAdd?.(list);
     onClose();
+  };
+
+  // Remove one of your own custom exercises (library ones aren't deletable).
+  const deleteCustom = async (ex) => {
+    if (!window.confirm(`Delete custom exercise "${ex.name}"?`)) return;
+    try {
+      await api.delete(`/exercises/${ex.id}`);
+      setExercises((arr) => arr.filter((x) => x.id !== ex.id));
+      setSelected((prev) => {
+        const next = { ...prev };
+        delete next[ex.id];
+        return next;
+      });
+      setRecents((r) => r.filter((x) => x.id !== ex.id));
+    } catch { /* leave the row in place if it fails */ }
   };
 
   const toggle = (ex) => {
@@ -182,6 +197,16 @@ export default function ExercisePicker({
             </Badge>
           </div>
         </div>
+        {ex.custom && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); deleteCustom(ex); }}
+            className="shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-muted transition"
+            aria-label={`Delete ${ex.name}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); setDetailEx(ex); }}
