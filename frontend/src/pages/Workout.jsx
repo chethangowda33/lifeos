@@ -78,6 +78,15 @@ export default function Workout() {
     setRoutines(data);
   };
 
+  // Copy a plan's days into standalone, editable routines (non-destructive —
+  // the plan keeps its days; the routines get foldered under the plan name).
+  const importPlanDays = async (plan) => {
+    try {
+      await api.post(`/plans/${plan.id}/import-days`);
+      await Promise.all([loadPlans(), loadRoutines()]);
+    } catch { /* non-blocking */ }
+  };
+
   // Move a routine into/out of a folder (additive field on the routine).
   const setRoutineFolder = async (routine, folder) => {
     try {
@@ -302,6 +311,7 @@ export default function Workout() {
             onReorder={(dayIdx, dir) => reorderPlanDay(p, dayIdx, dir)}
             onDelete={() => deletePlan(p)}
             onSetCooldown={(days) => setPlanCooldown(p, days)}
+            onImportDays={() => importPlanDays(p)}
           />
         ))}
 
@@ -685,8 +695,9 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
 
 /* A plan is presented as a folder of routines (Hevy-style) — collapsed by default,
  * with all management tucked into a kebab menu. */
-function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown }) {
+function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown, onImportDays }) {
   const days = plan.days || [];
+  const hasRoutines = (plan.routines || []).length > 0;
   const cooldown = plan.cooldown_days ?? 7;
   const nextIdx = suggestedDayIndex(days);
   const [open, setOpen] = useState(true);
@@ -713,6 +724,11 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown }) {
           <span className="text-xs text-muted-foreground shrink-0">
             {days.length} days · next: {days[nextIdx]?.name}
           </span>
+          {hasRoutines && (
+            <Badge variant="outline" className="text-[9px] shrink-0" title="Days are saved as routines you can edit">
+              <ClipboardList className="h-2.5 w-2.5 mr-0.5" /> routines
+            </Badge>
+          )}
         </button>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -731,6 +747,11 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown }) {
                 ))}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+            {!hasRoutines && (
+              <DropdownMenuItem onClick={onImportDays}>
+                <ClipboardList className="h-4 w-4 mr-2" /> Save days as routines
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
               <Trash2 className="h-4 w-4 mr-2" /> Delete plan
