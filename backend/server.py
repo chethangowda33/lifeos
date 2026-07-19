@@ -247,6 +247,9 @@ class PlanIn(BaseModel):
     name: str
     source_program_id: Optional[str] = None
     days: List[PlanDayIn] = []
+    # New shape: a plan (a "split") is an ordered list of Routines. `days` is the
+    # legacy embedded shape and is kept so existing plans keep working.
+    routine_ids: List[str] = []
     next_day_index: Optional[int] = 0
     cooldown_days: Optional[int] = None  # None = leave unchanged on update; 0 = guard off
 
@@ -817,10 +820,43 @@ def _serialize_plan_days(days: List[PlanDayIn]) -> List[Dict[str, Any]]:
     ]
 
 
+async def _enrich_plan_routines(docs: List[Dict[str, Any]], user_id: str) -> None:
+    """Attach the referenced Routines (in order) to every plan that uses the
+    routine_ids shape, so the UI can render a split without embedded exercises."""
+    all_ids = set()
+    for d in docs:
+        for rid in d.get("routine_ids") or []:
+            all_ids.add(rid)
+    if not all_ids:
+        return
+    oids = []
+    for rid in all_ids:
+        try:
+            oids.append(ObjectId(rid))
+        except Exception:
+            continue
+    by_id: Dict[str, Dict[str, Any]] = {}
+    async for r in db.routines.find({"_id": {"$in": oids}, "user_id": user_id}):
+        by_id[str(r["_id"])] = r
+    for d in docs:
+        out = []
+        for rid in d.get("routine_ids") or []:
+            r = by_id.get(rid)
+            if r:
+                out.append({
+                    "id": rid,
+                    "name": r.get("name"),
+                    "folder": r.get("folder", ""),
+                    "exercise_count": len(r.get("exercises") or []),
+                })
+        d["routines"] = out
+
+
 @api.get("/plans")
 async def list_plans(user=Depends(get_current_user)):
     docs = await db.plans.find({"user_id": str(user["_id"])}).sort("created_at", -1).to_list(200)
     await _enrich_plan_days(docs)
+    await _enrich_plan_routines(docs, str(user["_id"]))
     for d in docs:
         d["id"] = str(d.pop("_id"))
     return docs
@@ -833,6 +869,7 @@ async def create_plan(payload: PlanIn, user=Depends(get_current_user)):
         "name": payload.name,
         "source_program_id": payload.source_program_id,
         "days": _serialize_plan_days(payload.days),
+        "routine_ids": payload.routine_ids or [],
         "next_day_index": payload.next_day_index or 0,
         "cooldown_days": payload.cooldown_days if payload.cooldown_days is not None else 7,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -850,8 +887,10 @@ async def update_plan(plan_id: str, payload: PlanIn, user=Depends(get_current_us
     except Exception:
         raise HTTPException(404, "Plan not found")
     update = {"name": payload.name, "days": _serialize_plan_days(payload.days)}
+    if payload.routine_ids:
+        update["routine_ids"] = payload.routine_ids
     if payload.next_day_index is not None:
-        n = len(payload.days) or 1
+        n = len(payload.routine_ids) or len(payload.days) or 1
         update["next_day_index"] = max(0, min(payload.next_day_index, n - 1))
     if payload.cooldown_days is not None:
         update["cooldown_days"] = max(0, payload.cooldown_days)
@@ -861,6 +900,50 @@ async def update_plan(plan_id: str, payload: PlanIn, user=Depends(get_current_us
     if res.matched_count == 0:
         raise HTTPException(404, "Plan not found")
     return {"ok": True}
+
+
+@api.post("/plans/{plan_id}/import-days")
+async def import_plan_days_as_routines(plan_id: str, user=Depends(get_current_user)):
+    """Non-destructive upgrade: copy each embedded plan day into a real Routine
+    and point the plan at them via routine_ids.
+
+    The original `days` array is deliberately left in place — nothing is deleted,
+    so this is safe to run and easy to roll back. No-ops if already imported.
+    """
+    try:
+        oid = ObjectId(plan_id)
+    except Exception:
+        raise HTTPException(404, "Plan not found")
+    uid = str(user["_id"])
+    plan = await db.plans.find_one({"_id": oid, "user_id": uid})
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    if plan.get("routine_ids"):
+        return {"ok": True, "already_imported": True, "routine_ids": plan["routine_ids"]}
+
+    routine_ids: List[str] = []
+    for day in plan.get("days") or []:
+        exercises = [
+            {
+                "exercise_id": e.get("exercise_id"),
+                "sets": e.get("sets", 3),
+                "reps": e.get("reps", 10),
+                "notes": e.get("notes", ""),
+            }
+            for e in (day.get("exercises") or [])
+            if e.get("exercise_id")
+        ]
+        res = await db.routines.insert_one({
+            "user_id": uid,
+            "name": day.get("name") or "Day",
+            "folder": plan.get("name") or "",   # group them under the split's name
+            "exercises": exercises,
+            "created_at": datetime.now(timezone.utc),
+        })
+        routine_ids.append(str(res.inserted_id))
+
+    await db.plans.update_one({"_id": oid}, {"$set": {"routine_ids": routine_ids}})
+    return {"ok": True, "already_imported": False, "routine_ids": routine_ids}
 
 
 @api.delete("/plans/{plan_id}")
