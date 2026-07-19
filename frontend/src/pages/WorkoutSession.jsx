@@ -13,7 +13,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { enqueue, isNetworkError } from "@/lib/offlineQueue";
 import {
-  Timer, ChevronDown, Plus, Check, Play, Pause, MoreVertical, X, Flame, Trash2,
+  Timer, ChevronDown, Plus, Check, Play, Pause, MoreVertical, X, Flame, Trash2, ClipboardList,
   ArrowUp, ArrowDown, Repeat, Dumbbell, Calculator, Link2, Unlink, Info, Sparkles, Trophy, StickyNote,
 } from "lucide-react";
 import PlateCalculator from "@/components/PlateCalculator";
@@ -185,6 +185,9 @@ export default function WorkoutSession() {
   const [intervalOpen, setIntervalOpen] = useState(false); // interval/EMOM/HIIT timer dialog
   const [rpeInfoOpen, setRpeInfoOpen] = useState(false);
   const recordsRef = useRef({}); // { exercise_id: records } — live PR checks
+  const routineBaseRef = useRef(null); // { id, name, exerciseIds } when started from a routine
+  const [routineDiff, setRoutineDiff] = useState(null); // { name, added[], removed[], exercises[] }
+  const [updatingRoutine, setUpdatingRoutine] = useState(false);
   const wakeLockRef = useRef(null);
   const tickRef = useRef();
 
@@ -268,6 +271,13 @@ export default function WorkoutSession() {
           }
           freshName = r.name;
           freshExercises = await buildSessionExercises(r.exercises, prefs);
+          // Remember what the routine looked like, so on finish we can offer to
+          // save back any exercises you added/removed during the session.
+          routineBaseRef.current = {
+            id: r.id,
+            name: r.name,
+            exerciseIds: (r.exercises || []).map((e) => e.exercise_id).filter(Boolean),
+          };
         }
       } catch (e) {
         toast({ title: "Could not load", description: String(e.message || e), variant: "destructive" });
@@ -568,10 +578,26 @@ export default function WorkoutSession() {
       })),
     };
 
+    // Did this session drift from the routine it started from? If so, offer to
+    // save the changes back to the routine (Hevy-style) after the workout saves.
+    const computeRoutineDiff = () => {
+      const base = routineBaseRef.current;
+      if (!base || saveAsRoutine) return null;
+      const nameOf = (id) => exercises.find((e) => e.exercise_id === id)?.name || "Exercise";
+      const nowIds = exercises.map((e) => e.exercise_id).filter(Boolean);
+      const baseSet = new Set(base.exerciseIds);
+      const nowSet = new Set(nowIds);
+      const added = [...new Set(nowIds.filter((id) => !baseSet.has(id)))].map(nameOf);
+      const removed = base.exerciseIds.filter((id) => !nowSet.has(id));
+      if (!added.length && !removed.length) return null;
+      return { id: base.id, name: base.name, added, removedCount: removed.length };
+    };
+
     // Shared completion — clears the draft and shows the post-workout summary.
     const finishLocal = (saved) => {
       try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
       setSavingOpen(false);
+      setRoutineDiff(computeRoutineDiff());
       setSummary({
         name,
         sets: stats.sets,
@@ -606,6 +632,29 @@ export default function WorkoutSession() {
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Save the session's exercise list back onto the routine it started from.
+  const updateRoutineFromSession = async () => {
+    if (!routineDiff) return;
+    setUpdatingRoutine(true);
+    try {
+      await api.put(`/routines/${routineDiff.id}`, {
+        name: routineDiff.name,
+        exercises: exercises.filter((ex) => ex.exercise_id).map((ex) => ({
+          exercise_id: ex.exercise_id,
+          sets: ex.sets.filter((s) => s.set_type !== "warmup").length || ex.sets.length,
+          reps: ex.target_reps || 10,
+          notes: "",
+        })),
+      });
+      toast({ title: "Routine updated", description: `"${routineDiff.name}" now matches this workout` });
+      setRoutineDiff(null);
+    } catch (e) {
+      toast({ title: "Couldn't update routine", description: describeApiError(e), variant: "destructive" });
+    } finally {
+      setUpdatingRoutine(false);
     }
   };
 
@@ -829,6 +878,32 @@ export default function WorkoutSession() {
                   {pr.pr_type === "reps" ? " reps" : pr.pr_type === "duration" ? "s" : pr.pr_type === "distance" ? " m" : pr.pr_type === "pace" ? " km/h" : " kg"}
                 </div>
               ))}
+            </div>
+          )}
+          {routineDiff && (
+            <div className="rounded-lg border border-[hsl(var(--maroon)/0.35)] bg-[hsl(var(--maroon)/0.06)] p-3 text-left space-y-2">
+              <div className="text-sm font-semibold flex items-center gap-1.5">
+                <ClipboardList className="h-4 w-4 text-maroon" /> Update &ldquo;{routineDiff.name}&rdquo;?
+              </div>
+              <p className="text-xs text-muted-foreground">
+                You {[
+                  routineDiff.added.length && `added ${routineDiff.added.length} exercise${routineDiff.added.length > 1 ? "s" : ""}`,
+                  routineDiff.removedCount && `removed ${routineDiff.removedCount} exercise${routineDiff.removedCount > 1 ? "s" : ""}`,
+                ].filter(Boolean).join(" and ")} during this workout.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={updatingRoutine}
+                  onClick={updateRoutineFromSession}
+                  className="flex-1 bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
+                >
+                  {updatingRoutine ? "Updating…" : "Update routine"}
+                </Button>
+                <Button size="sm" variant="ghost" className="flex-1" onClick={() => setRoutineDiff(null)}>
+                  Keep original
+                </Button>
+              </div>
             </div>
           )}
           <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
