@@ -8,10 +8,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Check } from "lucide-react";
 import ExercisePicker from "@/components/ExercisePicker";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { buildWorkoutPayload, describeApiError } from "@/features/workout/lib/payload";
 
-const GRID = "grid grid-cols-[1.5rem_1fr_1fr_2rem_1.5rem] gap-2 items-center";
+// Set | Kg | Reps | RPE | Done | Delete — compact so it fits a phone.
+const GRID = "grid grid-cols-[26px_1fr_1fr_38px_28px_22px] gap-1 sm:gap-2 items-center";
+
+const SET_TYPES = [
+  ["working", "Working set", "text-foreground"],
+  ["warmup", "W — Warm-up", "text-orange-400"],
+  ["dropset", "D — Drop set", "text-purple-400"],
+  ["failure", "F — Failure", "text-red-500"],
+  ["amrap", "A — AMRAP", "text-blue-400"],
+];
+const setLabel = (t, i) =>
+  t === "warmup" ? "W" : t === "dropset" ? "D" : t === "failure" ? "F" : t === "amrap" ? "A" : String(i + 1);
+const setColor = (t) =>
+  t === "warmup" ? "text-orange-400" : t === "dropset" ? "text-purple-400"
+    : t === "failure" ? "text-red-500" : t === "amrap" ? "text-blue-400" : "text-muted-foreground";
 
 /* Edit a previously-saved workout: fix weights/reps, toggle completed, add or
  * remove sets, add or remove exercises. Saves via PUT /workouts/{id}. */
@@ -112,22 +129,50 @@ export default function EditWorkoutDialog({ workout, open, onClose, onSaved }) {
               </div>
 
               <div className={`${GRID} text-[10px] uppercase tracking-wider text-muted-foreground mb-1 px-0.5`}>
-                <span>Set</span><span className="text-center">Kg</span><span className="text-center">Reps</span><span className="text-center">Done</span><span />
+                <span>Set</span><span className="text-center">Kg</span><span className="text-center">Reps</span>
+                <span className="text-center">RPE</span><span className="text-center">Done</span><span />
               </div>
               {ex.sets.map((s, si) => (
                 <div key={si} className={`${GRID} mb-1.5`}>
-                  <span className="text-xs text-muted-foreground text-center">{si + 1}</span>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <button
+                        title="Set type"
+                        className={`text-xs font-semibold rounded hover:bg-muted ${setColor(s.set_type)}`}
+                      >
+                        {setLabel(s.set_type, si)}
+                      </button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-36">
+                      {SET_TYPES.map(([val, lbl, cls]) => (
+                        <DropdownMenuItem
+                          key={val}
+                          onClick={() => patchSet(ei, si, { set_type: val })}
+                          className={`${cls} ${(s.set_type || "working") === val ? "bg-muted" : ""}`}
+                        >
+                          {lbl}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Input
                     type="number" inputMode="decimal" value={s.kg ?? ""}
                     onChange={(e) => patchSet(ei, si, { kg: e.target.value })}
                     onBlur={(e) => patchSet(ei, si, { kg: e.target.value })}
-                    placeholder="0" className="h-8 text-center"
+                    placeholder="0" className="h-8 text-center px-1"
                   />
                   <Input
                     type="number" inputMode="numeric" value={s.reps ?? ""}
                     onChange={(e) => patchSet(ei, si, { reps: e.target.value })}
                     onBlur={(e) => patchSet(ei, si, { reps: e.target.value })}
-                    placeholder="0" className="h-8 text-center"
+                    placeholder="0" className="h-8 text-center px-1"
+                  />
+                  <Input
+                    type="number" inputMode="decimal" value={s.rpe ?? ""}
+                    onChange={(e) => patchSet(ei, si, { rpe: e.target.value })}
+                    onBlur={(e) => patchSet(ei, si, { rpe: e.target.value })}
+                    min={6} max={10} step={0.5}
+                    placeholder="—" className="h-8 text-center text-xs px-1"
                   />
                   <button
                     onClick={() => patchSet(ei, si, { completed: !s.completed })}

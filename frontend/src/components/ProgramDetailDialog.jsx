@@ -33,15 +33,26 @@ export default function ProgramDetailDialog({ program, open, onClose, onSelectEx
           notes: "",
         })),
       }));
-      await api.post("/plans", {
+      const { data: plan } = await api.post("/plans", {
         name: program.name,
         source_program_id: program.id,
         days,
       });
+      // Also copy the days into real routines so they're editable on their own
+      // (foldered under the program name). Best-effort — the plan works regardless.
+      let asRoutines = false;
+      try {
+        if (plan?.id) {
+          await api.post(`/plans/${plan.id}/import-days`);
+          asRoutines = true;
+        }
+      } catch { /* plan alone is still usable */ }
       setSaved(true);
       toast({
         title: "Plan saved",
-        description: `${days.length} days added to My Plans — train them in any order.`,
+        description: asRoutines
+          ? `${days.length} days added — also saved as editable routines in a "${program.name}" folder.`
+          : `${days.length} days added to My Plans — train them in any order.`,
       });
       onSaved?.();
     } catch (e) {
