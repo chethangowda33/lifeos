@@ -78,6 +78,14 @@ export default function Workout() {
     setRoutines(data);
   };
 
+  // Move a routine into/out of a folder (additive field on the routine).
+  const setRoutineFolder = async (routine, folder) => {
+    try {
+      await api.put(`/routines/${routine.id}/folder`, { folder });
+      await loadRoutines();
+    } catch { /* non-blocking */ }
+  };
+
   const reorderRoutine = async (index, dir) => {
     const j = index + dir;
     if (j < 0 || j >= routines.length) return;
@@ -297,23 +305,41 @@ export default function Workout() {
           />
         ))}
 
-        {routines.map((r, i) => (
-          <RoutineRow
-            key={r.id}
-            routine={r}
-            isFirst={i === 0}
-            isLast={i === routines.length - 1}
-            onMoveUp={() => reorderRoutine(i, -1)}
-            onMoveDown={() => reorderRoutine(i, +1)}
-            onStart={() => navigate(`/workout/session/${r.id}`)}
-            onView={() => setActiveRoutine(r)}
-            onDelete={async () => {
-              if (!window.confirm(`Delete routine "${r.name}"?`)) return;
-              await api.delete(`/routines/${r.id}`);
-              await loadRoutines();
-            }}
-          />
-        ))}
+        {(() => {
+          // Hevy-style grouping: folders first, then ungrouped routines.
+          const folderNames = [...new Set(routines.map((r) => (r.folder || "").trim()).filter(Boolean))].sort();
+          const row = (r, i) => (
+            <RoutineRow
+              key={r.id}
+              routine={r}
+              isFirst={i === 0}
+              isLast={i === routines.length - 1}
+              folders={folderNames}
+              onSetFolder={(folder) => setRoutineFolder(r, folder)}
+              onMoveUp={() => reorderRoutine(i, -1)}
+              onMoveDown={() => reorderRoutine(i, +1)}
+              onStart={() => navigate(`/workout/session/${r.id}`)}
+              onView={() => setActiveRoutine(r)}
+              onDelete={async () => {
+                if (!window.confirm(`Delete routine "${r.name}"?`)) return;
+                await api.delete(`/routines/${r.id}`);
+                await loadRoutines();
+              }}
+            />
+          );
+          const inFolder = (name) => routines.map((r, i) => [r, i]).filter(([r]) => (r.folder || "").trim() === name);
+          const loose = routines.map((r, i) => [r, i]).filter(([r]) => !(r.folder || "").trim());
+          return (
+            <>
+              {folderNames.map((name) => (
+                <RoutineFolder key={name} name={name} count={inFolder(name).length}>
+                  {inFolder(name).map(([r, i]) => row(r, i))}
+                </RoutineFolder>
+              ))}
+              {loose.map(([r, i]) => row(r, i))}
+            </>
+          );
+        })()}
       </div>
 
       {/* Routine Builder */}
@@ -790,7 +816,28 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown }) {
 }
 
 /* Single-day routine as a simple minimal row. */
-function RoutineRow({ routine, onStart, onView, onDelete, onMoveUp, onMoveDown, isFirst, isLast }) {
+/* Collapsible folder of routines (Hevy-style grouping). */
+function RoutineFolder({ name, count, children }) {
+  const [open, setOpen] = useState(true);
+  return (
+    <div className="rounded-xl border border-border bg-muted/20 overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-muted/40 transition"
+      >
+        <Folder className="h-4 w-4 text-maroon shrink-0" />
+        <span className="text-sm font-medium truncate flex-1">{name}</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{count}</span>
+        {open
+          ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
+          : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+      </button>
+      {open && <div className="px-2 pb-2 space-y-2">{children}</div>}
+    </div>
+  );
+}
+
+function RoutineRow({ routine, onStart, onView, onDelete, onMoveUp, onMoveDown, isFirst, isLast, folders = [], onSetFolder }) {
   const preview = (routine.exercises || []).map((e) => e.name).filter(Boolean).slice(0, 3).join(", ");
   return (
     <div data-testid={WORKOUT.routineCard} className="rounded-xl border border-border bg-card px-3 py-2.5 flex items-center gap-3 hover:border-[hsl(var(--maroon)/0.4)] transition group">
@@ -802,11 +849,11 @@ function RoutineRow({ routine, onStart, onView, onDelete, onMoveUp, onMoveDown, 
       </button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition opacity-0 group-hover:opacity-100" aria-label="Routine options">
+          <button className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition" aria-label="Routine options">
             <MoreVertical className="h-4 w-4" />
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-40">
+        <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuItem onClick={onView}>View exercises</DropdownMenuItem>
           <DropdownMenuItem onClick={onMoveUp} disabled={isFirst}>
             <ArrowUp className="h-4 w-4 mr-2" /> Move up
@@ -814,6 +861,27 @@ function RoutineRow({ routine, onStart, onView, onDelete, onMoveUp, onMoveDown, 
           <DropdownMenuItem onClick={onMoveDown} disabled={isLast}>
             <ArrowDown className="h-4 w-4 mr-2" /> Move down
           </DropdownMenuItem>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <Folder className="h-4 w-4 mr-2" /> Move to folder
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-44">
+              {folders.filter((f) => f !== routine.folder).map((f) => (
+                <DropdownMenuItem key={f} onClick={() => onSetFolder?.(f)}>{f}</DropdownMenuItem>
+              ))}
+              <DropdownMenuItem
+                onClick={() => {
+                  const n = window.prompt("Folder name");
+                  if (n && n.trim()) onSetFolder?.(n.trim());
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" /> New folder…
+              </DropdownMenuItem>
+              {routine.folder ? (
+                <DropdownMenuItem onClick={() => onSetFolder?.("")}>Remove from folder</DropdownMenuItem>
+              ) : null}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={onDelete} className="text-destructive focus:text-destructive">
             <Trash2 className="h-4 w-4 mr-2" /> Delete

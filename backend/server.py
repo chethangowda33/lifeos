@@ -222,6 +222,7 @@ class RoutineExerciseIn(BaseModel):
 
 class RoutineIn(BaseModel):
     name: str
+    folder: str = ""  # Hevy-style grouping; "" = ungrouped
     exercises: List[RoutineExerciseIn] = []
 
 
@@ -718,6 +719,7 @@ async def create_routine(payload: RoutineIn, user=Depends(get_current_user)):
     doc = {
         "user_id": str(user["_id"]),
         "name": payload.name,
+        "folder": payload.folder or "",
         "exercises": [e.model_dump() for e in payload.exercises],
         "created_at": datetime.now(timezone.utc),
     }
@@ -735,11 +737,31 @@ async def update_routine(routine_id: str, payload: RoutineIn, user=Depends(get_c
         raise HTTPException(404, "Routine not found")
     res = await db.routines.update_one(
         {"_id": oid, "user_id": str(user["_id"])},
-        {"$set": {"name": payload.name, "exercises": [e.model_dump() for e in payload.exercises]}},
+        {"$set": {
+            "name": payload.name,
+            "folder": payload.folder or "",
+            "exercises": [e.model_dump() for e in payload.exercises],
+        }},
     )
     if res.matched_count == 0:
         raise HTTPException(404, "Routine not found")
     return {"ok": True}
+
+
+@api.put("/routines/{routine_id}/folder")
+async def set_routine_folder(routine_id: str, body: dict, user=Depends(get_current_user)):
+    """Move a routine into a folder (or out of one with ""). Hevy-style grouping."""
+    try:
+        oid = ObjectId(routine_id)
+    except Exception:
+        raise HTTPException(404, "Routine not found")
+    folder = str(body.get("folder") or "").strip()[:60]
+    res = await db.routines.update_one(
+        {"_id": oid, "user_id": str(user["_id"])}, {"$set": {"folder": folder}}
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Routine not found")
+    return {"ok": True, "folder": folder}
 
 
 @api.delete("/routines/{routine_id}")
