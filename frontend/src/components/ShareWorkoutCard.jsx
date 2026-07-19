@@ -63,6 +63,16 @@ export default function ShareWorkoutButton({ summary }) {
             </span>
           </div>
           <div className="text-xl font-semibold tracking-tight">{summary.name || "Workout"}</div>
+          {summary.lifetime?.total_workouts > 0 && (
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold tracking-tight text-maroon leading-none">
+                {summary.lifetime.total_workouts}
+              </span>
+              <span className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                workouts<br />all time
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-2 text-center">
             {[["Duration", fmtDur(summary.duration)], ["Volume", `${(summary.volume || 0).toFixed(0)} kg`], ["Sets", summary.sets || 0]].map(([label, value]) => (
               <div key={label} className="rounded-lg border border-border bg-muted/30 py-2">
@@ -85,6 +95,12 @@ export default function ShareWorkoutButton({ summary }) {
                   <span className="text-foreground font-medium">{pr.exercise_name}</span> — {pr.label}: {pr.value}
                 </div>
               ))}
+            </div>
+          )}
+          {summary.lifetime?.total_workouts > 0 && (
+            <div className="text-[11px] text-muted-foreground text-center">
+              {fmtDur(summary.lifetime.total_duration)} of effort ·{" "}
+              {Math.round(summary.lifetime.total_volume || 0).toLocaleString()} kg lifted
             </div>
           )}
           <div className="text-center text-[10px] uppercase tracking-widest text-muted-foreground">

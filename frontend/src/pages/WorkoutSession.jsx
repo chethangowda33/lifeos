@@ -48,6 +48,20 @@ function accentHex() {
 // (sit-ups, crunches, leg raises); only cardio defaults to duration.
 const TIME_BASED = new Set(["cardio"]);
 
+/* 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 11 -> "11th" … for the milestone line. */
+function ordinal(n) {
+  const v = Number(n) || 0;
+  const s = ["th", "st", "nd", "rd"];
+  return v + (s[((v % 100) - 20) % 10] || s[v % 100] || s[0]);
+}
+
+/* Total training time in whole hours ("4 hours"), falling back to minutes. */
+function fmtHours(secs) {
+  const h = Math.floor((secs || 0) / 3600);
+  if (h >= 1) return `${h} hour${h > 1 ? "s" : ""}`;
+  return `${Math.max(1, Math.round((secs || 0) / 60))} min`;
+}
+
 // Rest-timer end alert — short beep (Web Audio) + haptic buzz. (exported: reused by IntervalTimer)
 let _audioCtx = null;
 export function restAlert() {
@@ -617,6 +631,11 @@ export default function WorkoutSession() {
         } catch { /* non-blocking */ }
       }
       finishLocal(saved);
+      // Milestone line ("your Nth workout") + all-time totals for the summary
+      // and the share card. Non-blocking — the summary shows immediately.
+      api.get("/workouts/stats")
+        .then(({ data }) => setSummary((s) => (s ? { ...s, lifetime: data } : s)))
+        .catch(() => { /* summary just omits the milestone */ });
     } catch (e) {
       // Offline / server unreachable → queue it and finish anyway. It syncs on reconnect.
       if (isNetworkError(e) || !navigator.onLine) {
@@ -859,14 +878,24 @@ export default function WorkoutSession() {
       <Dialog open={!!summary} onOpenChange={(o) => { if (!o) { setSummary(null); navigate("/progress"); } }}>
         <DialogContent className="max-w-sm text-center">
           <DialogHeader>
-            <DialogTitle className="text-2xl">Workout complete 💪</DialogTitle>
-            <DialogDescription>Nice work — here&apos;s how it went.</DialogDescription>
+            <DialogTitle className="text-2xl">Nice work! 💪</DialogTitle>
+            <DialogDescription>
+              {summary?.lifetime?.total_workouts
+                ? `This is your ${ordinal(summary.lifetime.total_workouts)} workout`
+                : "Here's how it went."}
+            </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-3 gap-2">
             <MiniStat label="Duration" value={fmtDuration(summary?.duration || 0)} />
             <MiniStat label="Volume" value={`${(summary?.volume || 0).toFixed(0)} kg`} />
             <MiniStat label="Sets" value={summary?.sets || 0} />
           </div>
+          {summary?.lifetime?.total_workouts > 0 && (
+            <p className="text-xs text-muted-foreground">
+              That&apos;s <span className="text-foreground font-medium">{fmtHours(summary.lifetime.total_duration)}</span> of
+              effort and <span className="text-foreground font-medium">{Math.round(summary.lifetime.total_volume || 0).toLocaleString()} kg</span> lifted. Solid work!
+            </p>
+          )}
           {summary?.prs?.length > 0 && (
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-left space-y-1.5">
               <div className="text-sm font-semibold flex items-center gap-1.5">
