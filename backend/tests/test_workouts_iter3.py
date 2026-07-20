@@ -137,6 +137,81 @@ class TestWorkouts:
         assert r.status_code == 404
 
 
+# ─── PR / progression rollback ───────────────────────────────────────────────
+class TestDerivedStateRollback:
+    """Deleting or correcting a session must retract the PRs and progression it
+    produced. PRs are computed incrementally, so without a replay a mistyped
+    500 kg set leaves a permanent PR and keeps being prescribed as the next
+    target. Runs on a throwaway custom exercise so real PR history is untouched."""
+
+    exercise_id = None
+
+    def _pr_weight(self, session, auth_headers):
+        r = session.get(f"{API}/exercises/{self.exercise_id}/records", headers=auth_headers)
+        assert r.status_code == 200
+        return (r.json().get("records") or {}).get("weight", {}).get("value")
+
+    def _log(self, session, auth_headers, kg):
+        payload = {
+            "name": "TEST_PR_rollback", "duration_seconds": 60,
+            "exercises": [{
+                "exercise_id": self.exercise_id, "rest_timer_seconds": 90, "target_reps": 8,
+                "sets": [{"set_type": "working", "kg": kg, "reps": 5, "rpe": 8, "completed": True}],
+            }],
+        }
+        r = session.post(f"{API}/workouts", headers=auth_headers, json=payload)
+        assert r.status_code == 200, r.text
+        return r.json()["id"]
+
+    def test_setup_custom_exercise(self, session, auth_headers):
+        r = session.post(f"{API}/exercises", headers=auth_headers,
+                         json={"name": "TEST_PR_Rollback Lift", "muscle_group": "chest",
+                               "equipment": "barbell"})
+        assert r.status_code == 200, r.text
+        TestDerivedStateRollback.exercise_id = r.json()["id"]
+        assert self._pr_weight(session, auth_headers) is None, "fresh exercise should have no PR"
+
+    def test_delete_retracts_pr(self, session, auth_headers):
+        good = self._log(session, auth_headers, 60)
+        assert self._pr_weight(session, auth_headers) == 60
+
+        bogus = self._log(session, auth_headers, 500)          # mistyped entry
+        assert self._pr_weight(session, auth_headers) == 500
+        prog = session.get(f"{API}/progression", headers=auth_headers).json()
+        assert prog[self.exercise_id]["suggested_kg"] >= 500
+
+        session.delete(f"{API}/workouts/{bogus}", headers=auth_headers)
+        assert self._pr_weight(session, auth_headers) == 60, "bogus PR survived the delete"
+        prog = session.get(f"{API}/progression", headers=auth_headers).json()
+        assert prog[self.exercise_id]["suggested_kg"] < 500
+        assert 583.3 not in prog[self.exercise_id]["e1rm_history"]
+
+        session.delete(f"{API}/workouts/{good}", headers=auth_headers)
+        assert self._pr_weight(session, auth_headers) is None, "PR outlived every session"
+
+    def test_edit_retracts_pr(self, session, auth_headers):
+        wid = self._log(session, auth_headers, 300)
+        assert self._pr_weight(session, auth_headers) == 300
+
+        stored = session.get(f"{API}/workouts", headers=auth_headers).json()
+        wk = next(w for w in stored if w["id"] == wid)
+        wk["exercises"][0]["sets"][0]["kg"] = 30                # correct the typo
+        r = session.put(f"{API}/workouts/{wid}", headers=auth_headers,
+                        json={"name": "TEST_PR_rollback", "duration_seconds": 60,
+                              "exercises": wk["exercises"]})
+        assert r.status_code == 200, r.text
+        assert self._pr_weight(session, auth_headers) == 30, "corrected-away PR survived the edit"
+
+        session.delete(f"{API}/workouts/{wid}", headers=auth_headers)
+
+    def test_teardown_custom_exercise(self, session, auth_headers):
+        r = session.delete(f"{API}/exercises/{self.exercise_id}", headers=auth_headers)
+        assert r.status_code == 200
+        remaining = session.get(f"{API}/exercises?search=TEST_PR_Rollback",
+                                headers=auth_headers).json()
+        assert remaining == []
+
+
 # ─── Body metrics clear-log ──────────────────────────────────────────────────
 class TestClearBodyMetric:
     def test_clear_body_fat_logs(self, session, auth_headers):

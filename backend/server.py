@@ -583,6 +583,8 @@ async def delete_custom_exercise(exercise_id: str, user=Depends(get_current_user
     res = await db.exercises.delete_one({"_id": oid, "user_id": str(user["_id"]), "custom": True})
     if res.deleted_count == 0:
         raise HTTPException(404, "Custom exercise not found")
+    # The note is keyed by exercise_id, so it would otherwise outlive the exercise.
+    await db.exercise_notes.delete_many({"user_id": str(user["_id"]), "exercise_id": exercise_id})
     return {"ok": True}
 
 
@@ -1520,6 +1522,11 @@ async def update_workout(workout_id: str, payload: WorkoutSessionIn, user=Depend
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     await db.workout_sessions.update_one({"_id": oid}, {"$set": update})
+    # Editing changes the sets PRs were derived from — replay so a lowered weight
+    # can't leave the old PR standing (exercises removed by the edit need it too).
+    touched = [e.get("exercise_id") for e in exercises_out]
+    touched += [e.get("exercise_id") for e in existing.get("exercises", [])]
+    await _rebuild_exercise_state(str(user["_id"]), touched)
     doc = await db.workout_sessions.find_one({"_id": oid})
     doc["id"] = str(doc.pop("_id"))
     doc.pop("user_id", None)
@@ -1530,9 +1537,13 @@ async def update_workout(workout_id: str, payload: WorkoutSessionIn, user=Depend
 async def delete_workout(workout_id: str, user=Depends(get_current_user)):
     try: oid = ObjectId(workout_id)
     except Exception: raise HTTPException(404, "Workout not found")
-    res = await db.workout_sessions.delete_one({"_id": oid, "user_id": str(user["_id"])})
-    if res.deleted_count == 0:
+    uid = str(user["_id"])
+    doomed = await db.workout_sessions.find_one({"_id": oid, "user_id": uid})
+    if not doomed:
         raise HTTPException(404, "Workout not found")
+    await db.workout_sessions.delete_one({"_id": oid, "user_id": uid})
+    # Drop the PRs/progression this session produced, then replay what's left.
+    await _rebuild_exercise_state(uid, [e.get("exercise_id") for e in doomed.get("exercises", [])])
     return {"ok": True}
 
 
@@ -1641,10 +1652,15 @@ PR_LABELS = {
 }
 
 
-async def _update_prs_and_progression(user_id: str, exercises: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def _update_prs_and_progression(
+    user_id: str, exercises: List[Dict[str, Any]], at: Optional[str] = None
+) -> List[Dict[str, Any]]:
     """After a session save: recompute PRs + progression state per exercise.
-    Returns the list of new PR events (for the save response toast)."""
-    now = datetime.now(timezone.utc).isoformat()
+    Returns the list of new PR events (for the save response toast).
+
+    `at` stamps the resulting records with a specific time instead of "now" —
+    used by _rebuild_exercise_state when replaying past sessions."""
+    now = at or datetime.now(timezone.utc).isoformat()
     pr_events: List[Dict[str, Any]] = []
 
     # name lookup for events
@@ -1753,6 +1769,32 @@ async def _update_prs_and_progression(user_id: str, exercises: List[Dict[str, An
         for e in pr_events:
             e.pop("_id", None)
     return pr_events
+
+
+async def _rebuild_exercise_state(user_id: str, exercise_ids: List[str]) -> None:
+    """Rebuild PRs + progression for these exercises by replaying surviving sessions.
+
+    _update_prs_and_progression is incremental — each save folds into the state left
+    by the one before it. So when a session is deleted or edited down, the PR and the
+    e1rm history it produced cannot be undone in place: they would outlive the sets
+    they came from (delete a mis-typed 300 kg session and the 300 kg PR sticks, and
+    progression keeps prescribing it). Replaying the remaining sessions in order is
+    what keeps derived state honest."""
+    ids = [e for e in dict.fromkeys(exercise_ids) if e]
+    if not ids:
+        return
+
+    await db.personal_records.delete_many({"user_id": user_id, "exercise_id": {"$in": ids}})
+    await db.progression_states.delete_many({"user_id": user_id, "exercise_id": {"$in": ids}})
+    await db.pr_events.delete_many({"user_id": user_id, "exercise_id": {"$in": ids}})
+
+    cursor = db.workout_sessions.find(
+        {"user_id": user_id, "exercises.exercise_id": {"$in": ids}}
+    ).sort("created_at", 1)
+    async for session in cursor:
+        relevant = [e for e in session.get("exercises", []) if e.get("exercise_id") in ids]
+        if relevant:
+            await _update_prs_and_progression(user_id, relevant, at=session.get("created_at"))
 
 
 @api.get("/progression")
@@ -2295,7 +2337,10 @@ async def build_user_context(user: Dict[str, Any]) -> str:
     workouts = await db.workout_sessions.find({"user_id": uid}).sort("created_at", -1).to_list(10)
     if workouts:
         wk = [x for x in workouts if (x.get("created_at", "") or "") >= (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()]
-        lines.append(f"Workouts: {len(workouts)} recent, {len(wk)} in the last 7 days. Latest:")
+        # The slice above is only the detail window — state the true lifetime total too,
+        # or the coach reports "10 workouts" to someone who has logged hundreds.
+        lifetime = await db.workout_sessions.count_documents({"user_id": uid})
+        lines.append(f"Workouts: {lifetime} logged all-time, {len(wk)} in the last 7 days. Most recent {len(workouts)}:")
         for x in workouts[:5]:
             lines.append(
                 f"  - {x.get('name')} on {(x.get('created_at') or '')[:10]}: "

@@ -106,6 +106,40 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**FULL AUDIT + 3 FIXES (2026-07-21) — read `FEATURES.md` first**
+- **`FEATURES.md` is new** — a complete per-feature catalogue (what it is, how it works, what
+  the user clicks, what they can modify, what to improve) plus the audit evidence. It is the
+  best entry point for "where are we"; this file stays the chronological log.
+- **Local dev is UP again** (the "Docker is down" note below is stale). `lifeos-mongo` runs;
+  backend starts with `cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8001`.
+- **Audit method**: all 80 endpoints exercised against LOCAL Mongo with real data, every write
+  re-read AND verified directly in Mongo. **32/32 reads + 81/81 write assertions pass.** All
+  test data was tagged `ZZAUDIT` and removed; final DB state confirmed equal to pre-audit.
+- **3 real defects found and fixed** (details + reproduction in `FEATURES.md` §14):
+  1. **Ghost PRs — the important one.** `delete_workout` only deleted the session document.
+     PRs/progression are computed **incrementally**, so a mistyped 500 kg set left a permanent
+     500 kg PR and kept being prescribed *after the workout was deleted*. Same on edit
+     (300→30 kg left the 300 kg PR). Fix = `_rebuild_exercise_state()`: wipe the derived docs
+     for the affected exercises and **replay surviving sessions in order**
+     (`_update_prs_and_progression` now takes `at=` so replays keep original dates). Wired into
+     both DELETE and PUT `/workouts/{id}`. **Don't reintroduce in-place PR mutation on
+     delete/edit — it cannot be correct, the state is incremental.**
+  2. Deleting a custom exercise orphaned its `exercise_notes` row → cascade delete added.
+  3. AI coach reported "10 workouts" to anyone with more — `build_user_context` capped at
+     `to_list(10)` then described that slice as the total. Now injects a real lifetime
+     `count_documents`. Verified: answers 13 where it used to answer 10.
+- **Tests: 43 passing** (39 + 4 new `TestDerivedStateRollback`, which run on a throwaway custom
+  exercise so they never touch real PR data).
+- **Top improvement candidates surfaced** (not yet done, ranked): (a) **NEXT UP is a rotation
+  tracker, not intelligence** — it ignores the muscle-recovery data the app already computes,
+  only ever reads `plans[0]`, and the "~63 min" estimate is the constant `sets × 3.5`;
+  (b) **body weight has no time series** — it is a single overwritable scalar on `profile`, so
+  the app cannot draw a weight trend at all; (c) habits still absent from AI coach context;
+  (d) offline queue still workout-only.
+- **Uncommitted `DEPLOYMENT.md` edit looks wrong** — it changes the Render start command from
+  `--port $PORT` to `--port 8001`. Render injects `$PORT`; hardcoding breaks the deploy for
+  anyone following the guide. I did not touch it — please confirm before it is committed.
+
 **NEXT UP (2026-07-16) — start here**
 - **APK / Android** — DELIBERATELY PARKED by the user ("hold apk for later"). All repo-side
   prep is DONE and deployed: `frontend/public/.well-known/assetlinks.json` (package
