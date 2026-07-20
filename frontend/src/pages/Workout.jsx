@@ -61,6 +61,7 @@ export default function Workout() {
   const [programs, setPrograms] = useState([]);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [planBuilderOpen, setPlanBuilderOpen] = useState(false);
+  const [splitEditorOpen, setSplitEditorOpen] = useState(false);
   const [activeRoutine, setActiveRoutine] = useState(null); // for viewing
   const [category, setCategory] = useState(null); // explore drill-down: null = tiles
   const [programDetail, setProgramDetail] = useState(null); // full program object with routines
@@ -361,11 +362,18 @@ export default function Workout() {
       />
 
       {/* Plan Builder */}
-      <SplitEditor
+      <PlanBuilder
         open={planBuilderOpen}
-        routines={routines}
         onClose={() => setPlanBuilderOpen(false)}
+        onUseRoutines={() => { setPlanBuilderOpen(false); setSplitEditorOpen(true); }}
         onSaved={async () => { setPlanBuilderOpen(false); await loadPlans(); }}
+      />
+
+      <SplitEditor
+        open={splitEditorOpen}
+        routines={routines}
+        onClose={() => setSplitEditorOpen(false)}
+        onSaved={async () => { setSplitEditorOpen(false); await loadPlans(); }}
       />
 
       {/* Active routine view */}
@@ -1092,3 +1100,238 @@ function RoutineBuilder({ open, onClose, onSaved }) {
  * Build a multi-day plan from scratch. Any number of days, any order,
  * any exercises per day. Uses the existing ExercisePicker + backend /plans.
  */
+
+function PlanBuilder({ open, onClose, onSaved, onUseRoutines }) {
+  const [name, setName] = useState("");
+  const [days, setDays] = useState([]); // [{ name, exercises: [{exercise, sets, reps}] }]
+  const [picker, setPicker] = useState(null); // { dayIdx } | null
+  const [buildId, setBuildId] = useState(0); // bumps each new build → picker filters reset
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) { setName(""); setDays([{ name: "Day 1", exercises: [] }]); setBuildId((n) => n + 1); }
+  }, [open]);
+
+  const addDay = () =>
+    setDays((arr) => [...arr, { name: `Day ${arr.length + 1}`, exercises: [] }]);
+
+  const removeDay = (idx) =>
+    setDays((arr) => arr.filter((_, i) => i !== idx));
+
+  const renameDay = (idx, next) =>
+    setDays((arr) => arr.map((d, i) => (i === idx ? { ...d, name: next } : d)));
+
+  const moveDay = (idx, dir) =>
+    setDays((arr) => {
+      const j = idx + dir;
+      if (j < 0 || j >= arr.length) return arr;
+      const copy = arr.slice();
+      [copy[idx], copy[j]] = [copy[j], copy[idx]];
+      return copy;
+    });
+
+  // Add one or many to a day at once; skip any already in that day (no duplicates per day).
+  const addExercisesToDay = (dayIdx, list) =>
+    setDays((arr) =>
+      arr.map((d, i) => {
+        if (i !== dayIdx) return d;
+        const have = new Set(d.exercises.map((e) => e.exercise.id));
+        const fresh = list.filter((ex) => !have.has(ex.id)).map((ex) => ({ exercise: ex, sets: 3, reps: 10 }));
+        return { ...d, exercises: [...d.exercises, ...fresh] };
+      }),
+    );
+
+  const patchExercise = (dayIdx, exIdx, patch) =>
+    setDays((arr) =>
+      arr.map((d, i) =>
+        i === dayIdx
+          ? { ...d, exercises: d.exercises.map((e, j) => (j === exIdx ? { ...e, ...patch } : e)) }
+          : d,
+      ),
+    );
+
+  const removeExercise = (dayIdx, exIdx) =>
+    setDays((arr) =>
+      arr.map((d, i) => (i === dayIdx ? { ...d, exercises: d.exercises.filter((_, j) => j !== exIdx) } : d)),
+    );
+
+  const canSave =
+    !!name.trim() &&
+    days.length > 0 &&
+    days.every((d) => d.name.trim() && d.exercises.length > 0);
+
+  const save = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await api.post("/plans", {
+        name: name.trim(),
+        days: days.map((d) => ({
+          name: d.name.trim(),
+          exercises: d.exercises.map((e) => ({
+            exercise_id: e.exercise.id, sets: e.sets, reps: e.reps, notes: "",
+          })),
+        })),
+      });
+      try { localStorage.setItem(BUILT_MANUALLY_KEY, "1"); } catch { /* ignore */ }
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle>New Plan</DialogTitle>
+          <DialogDescription>
+            Build a multi-day split. Add as many days as you like, in any order — train them however you want.
+            {onUseRoutines && (
+              <>
+                {" "}
+                <button type="button" onClick={onUseRoutines} className="text-maroon hover:underline">
+                  Or build it from your saved routines.
+                </button>
+              </>
+            )}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+          <div>
+            <div className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">Plan name</div>
+            <Input
+              data-testid={WORKOUT.planBuilderNameInput}
+              placeholder="e.g. My PPL Split"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
+
+          <div className="space-y-3">
+            {days.map((day, di) => (
+              <div key={di} className="rounded-lg border border-border bg-muted/20 p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col -my-1">
+                    <button
+                      onClick={() => moveDay(di, -1)}
+                      disabled={di === 0}
+                      className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
+                      aria-label="Move day up"
+                    >
+                      <ArrowUp className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => moveDay(di, +1)}
+                      disabled={di === days.length - 1}
+                      className="h-7 w-8 flex items-center justify-center rounded text-muted-foreground hover:text-maroon hover:bg-muted active:scale-90 transition disabled:opacity-20"
+                      aria-label="Move day down"
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <Input
+                    data-testid={WORKOUT.planBuilderDayNameInput}
+                    className="flex-1 h-9 font-medium"
+                    value={day.name}
+                    onChange={(e) => renameDay(di, e.target.value)}
+                    placeholder="Day name (e.g. Push Day)"
+                  />
+                  <button
+                    onClick={() => removeDay(di)}
+                    disabled={days.length === 1}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-30"
+                    aria-label="Remove day"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-1.5">
+                  {day.exercises.map((row, ei) => (
+                    <div key={ei} className="flex items-center gap-2 rounded-md border border-border bg-background px-2.5 py-1.5">
+                      <img src={row.exercise.image_url} alt="" className="h-8 w-8 rounded object-cover bg-muted" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{row.exercise.name}</div>
+                        <div className="text-[10px] text-muted-foreground capitalize">
+                          {row.exercise.muscle_group} · {row.exercise.equipment}
+                        </div>
+                      </div>
+                      <Input
+                        type="number"
+                        className="w-14 h-8 text-center"
+                        value={row.sets}
+                        min={1}
+                        onChange={(e) => patchExercise(di, ei, { sets: Number(e.target.value) || 1 })}
+                      />
+                      <span className="text-xs text-muted-foreground">×</span>
+                      <Input
+                        type="number"
+                        className="w-14 h-8 text-center"
+                        value={row.reps}
+                        min={1}
+                        onChange={(e) => patchExercise(di, ei, { reps: Number(e.target.value) || 1 })}
+                      />
+                      <button
+                        onClick={() => removeExercise(di, ei)}
+                        className="text-muted-foreground hover:text-destructive"
+                        aria-label="Remove exercise"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {day.exercises.length === 0 && (
+                    <div className="text-xs text-muted-foreground border border-dashed rounded-md py-3 text-center">
+                      No exercises in this day yet
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  data-testid={WORKOUT.planBuilderAddExerciseButton}
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-8"
+                  onClick={() => setPicker({ dayIdx: di })}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" /> Add exercise
+                </Button>
+              </div>
+            ))}
+          </div>
+
+          <Button
+            data-testid={WORKOUT.planBuilderAddDayButton}
+            variant="outline"
+            className="w-full border-dashed"
+            onClick={addDay}
+          >
+            <Plus className="h-4 w-4 mr-2" /> Add day
+          </Button>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button
+            data-testid={WORKOUT.planBuilderSaveButton}
+            disabled={saving || !canSave}
+            onClick={save}
+            className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
+          >
+            {saving ? "Saving…" : "Save plan"}
+          </Button>
+        </DialogFooter>
+
+        <ExercisePicker
+          open={picker !== null}
+          onClose={() => setPicker(null)}
+          onAdd={(list) => { if (picker) addExercisesToDay(picker.dayIdx, list); }}
+          existingIds={picker ? (days[picker.dayIdx]?.exercises || []).map((e) => e.exercise.id) : []}
+          resetSignal={buildId}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
