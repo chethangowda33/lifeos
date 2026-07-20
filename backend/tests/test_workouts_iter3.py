@@ -249,3 +249,53 @@ class TestClearBodyMetric:
     def test_clear_requires_auth(self):
         r = requests.delete(f"{API}/body-metrics/body_fat")
         assert r.status_code == 401
+
+
+# ─── Weight as a first-class metric with a real time series ───────────────────
+class TestWeightMetric:
+    """Weight must be a tracked metric (so the app can draw a trend), its healthy
+    range must follow the user's height, and a new reading must sync the profile
+    (which drives BMI/BMR/body-fat estimates)."""
+
+    def test_weight_is_defined_and_height_scaled(self, session, auth_headers):
+        session.put(f"{API}/auth/profile", headers=auth_headers,
+                    json={"age": 28, "height_cm": 178, "weight_kg": 75, "sex": "male"})
+        defs = session.get(f"{API}/body-metrics/definitions", headers=auth_headers).json()
+        assert "weight" in defs and defs["weight"]["auto"] is False
+        # BMI 18.5–24.9 at 1.78 m → ~58.6–78.9 kg
+        assert 57 <= defs["weight"]["ideal_min"] <= 60
+        assert 77 <= defs["weight"]["ideal_max"] <= 80
+
+    def test_logging_weight_builds_history_and_syncs_profile(self, session, auth_headers):
+        session.delete(f"{API}/body-metrics/weight", headers=auth_headers)  # clean slate
+        for v in (75.5, 75.0, 74.4):
+            r = session.post(f"{API}/body-metrics", headers=auth_headers,
+                             json={"metric": "weight", "value": v})
+            assert r.status_code == 200
+
+        hist = session.get(f"{API}/body-metrics/history/weight", headers=auth_headers).json()
+        assert [h["value"] for h in hist] == [75.5, 75.0, 74.4], "history must be an ordered series"
+
+        me = session.get(f"{API}/auth/me", headers=auth_headers).json()
+        assert me["profile"]["weight_kg"] == 74.4, "latest reading must reach the profile"
+
+        latest = session.get(f"{API}/body-metrics/latest", headers=auth_headers).json()
+        assert latest["weight"]["source"] == "manual"
+        assert latest["bmi"]["value"] < 23.7, "BMI must recompute from the new weight"
+
+    def test_profile_edit_appends_a_point_but_not_duplicates(self, session, auth_headers):
+        before = session.get(f"{API}/body-metrics/history/weight", headers=auth_headers).json()
+        session.put(f"{API}/auth/profile", headers=auth_headers, json={"weight_kg": 73.8})
+        after = session.get(f"{API}/body-metrics/history/weight", headers=auth_headers).json()
+        assert len(after) == len(before) + 1, "changing weight in the profile records a point"
+
+        session.put(f"{API}/auth/profile", headers=auth_headers, json={"weight_kg": 73.8})
+        same = session.get(f"{API}/body-metrics/history/weight", headers=auth_headers).json()
+        assert len(same) == len(after), "re-saving the same weight must not duplicate a point"
+
+    def test_cleanup_weight(self, session, auth_headers):
+        session.delete(f"{API}/body-metrics/weight", headers=auth_headers)
+        session.put(f"{API}/auth/profile", headers=auth_headers, json={"weight_kg": 75})
+        session.delete(f"{API}/body-metrics/weight", headers=auth_headers)
+        hist = session.get(f"{API}/body-metrics/history/weight", headers=auth_headers).json()
+        assert hist == []

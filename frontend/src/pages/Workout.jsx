@@ -75,6 +75,15 @@ export default function Workout() {
     } catch { /* strip just stays empty */ }
   };
 
+  // Per-muscle recovery, so the hero can prefer a day you're actually ready for.
+  const [recovery, setRecovery] = useState(null);
+  const loadRecovery = async () => {
+    try {
+      const { data } = await api.get("/workouts/muscle-volume");
+      setRecovery(Object.fromEntries(data.map((m) => [m.muscle_group, m.recovery])));
+    } catch { /* hero falls back to the rest-based order */ }
+  };
+
   const loadRoutines = async () => {
     const { data } = await api.get("/routines");
     setRoutines(data);
@@ -153,7 +162,7 @@ export default function Workout() {
     setProgramDetail(data);
   };
 
-  useEffect(() => { loadRoutines(); loadPlans(); loadWorkouts(); }, []);
+  useEffect(() => { loadRoutines(); loadPlans(); loadWorkouts(); loadRecovery(); }, []);
   useEffect(() => { loadPrograms(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Explore view (programs) ────────────────────────────────────────────────
@@ -266,6 +275,7 @@ export default function Workout() {
         routines={routines}
         workouts={workouts}
         programs={programs}
+        recovery={recovery}
         onOpenProgram={openProgram}
         onStartDay={(planId, dayIdx) => navigate(`/workout/session/plan/${planId}/${dayIdx}`)}
         onStartRoutine={(id) => navigate(`/workout/session/${id}`)}
@@ -314,6 +324,7 @@ export default function Workout() {
             onDelete={() => deletePlan(p)}
             onSetCooldown={(days) => setPlanCooldown(p, days)}
             onImportDays={() => importPlanDays(p)}
+            recovery={recovery}
           />
         ))}
 
@@ -437,15 +448,47 @@ function recencyLabel(iso) {
   return `${n}d ago`;
 }
 
-// Suggested next day = the one gone longest without training (never-done ranks first).
-// (exported: reused by useTrainReminder)
-export function suggestedDayIndex(days) {
-  let best = 0, bestT = Infinity;
+// How tired a muscle is, per /workouts/muscle-volume. Lower = readier to train.
+const FATIGUE_RANK = { fresh: 0, recovering: 1, worked: 2 };
+
+/* Suggested next day.
+   Base rule: the day gone longest without training (never-done ranks first).
+   When recovery data is available it takes precedence, so a day whose muscles were
+   hit today or yesterday waits behind one that's actually ready — the calendar
+   saying "it's been a while" doesn't mean the tissue has recovered. If every day is
+   equally fatigued the rest-based order still decides, so a pick is always made.
+   Called with one argument (no recovery map) it behaves exactly as before.
+   (exported: reused by useTrainReminder) */
+export function suggestedDayIndex(days, recoveryByMuscle = null) {
+  let best = 0, bestFatigue = Infinity, bestT = Infinity;
   days.forEach((d, i) => {
     const t = d.last_completed_at ? new Date(d.last_completed_at).getTime() : -Infinity;
-    if (t < bestT) { bestT = t; best = i; }
+    let fatigue = 0;
+    if (recoveryByMuscle) {
+      const groups = [...new Set((d.exercises || []).map((e) => e.muscle_group).filter(Boolean))];
+      fatigue = groups.reduce((m, g) => Math.max(m, FATIGUE_RANK[recoveryByMuscle[g]] ?? 0), 0);
+    }
+    if (fatigue < bestFatigue || (fatigue === bestFatigue && t < bestT)) {
+      bestFatigue = fatigue; bestT = t; best = i;
+    }
   });
   return best;
+}
+
+/* How long this session actually takes YOU. `sets × 3.5` was a constant that never
+   learned; the median of your own past sessions for this day/routine is a real
+   number. Falls back to the estimate until there's history to learn from. */
+export function estimateSessionMinutes(workouts, { planId, dayIndex, routineId }, totalSets) {
+  const past = (workouts || [])
+    .filter((w) => (
+      (planId && w.plan_id === planId && w.day_index === dayIndex) ||
+      (routineId && w.routine_id === routineId)
+    ))
+    .map((w) => w.duration_seconds)
+    .filter((s) => s > 0)
+    .sort((a, b) => a - b);
+  if (past.length) return { minutes: Math.round(past[Math.floor(past.length / 2)] / 60), learned: true };
+  return { minutes: Math.max(15, Math.round(totalSets * 3.5)), learned: false };
 }
 
 const COOLDOWN_OPTIONS = [["0", "Off"], ["3", "3 days"], ["5", "5 days"], ["7", "7 days"], ["14", "14 days"]];
@@ -489,8 +532,9 @@ function WeekStrip({ workouts }) {
   );
 }
 
-/* "Next up" hero — the app picks today's workout (most-rested plan day). */
-function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onStartDay, onStartRoutine, onCreate }) {
+/* "Next up" hero — the app picks today's workout: the day you're most recovered
+   for, breaking ties by which has gone longest untrained. */
+function HeroCard({ plans, routines, workouts, programs = [], recovery = null, onOpenProgram, onStartDay, onStartRoutine, onCreate }) {
   const [pickOpen, setPickOpen] = useState(false);
   const [goalKey, setGoalKey] = useState(() => {
     try { return localStorage.getItem("lifeos:reco-goal") || null; } catch { return null; }
@@ -515,13 +559,25 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
 
   const plan = plans[0];
   const days = plan?.days || [];
-  const nextIdx = plan ? suggestedDayIndex(days) : 0;
+  const nextIdx = plan ? suggestedDayIndex(days, recovery) : 0;
   const day = days[nextIdx];
   const routine = !plan ? routines[0] : null;
   const target = day || routine;
 
   const exs = target?.exercises || [];
   const totalSets = exs.reduce((n, e) => n + (e.sets || 3), 0);
+  const { minutes: estMinutes, learned: estLearned } = estimateSessionMinutes(
+    workouts,
+    { planId: plan?.id, dayIndex: nextIdx, routineId: routine?.id },
+    totalSets,
+  );
+  // Surfaced next to the title so the pick is explainable, not a black box.
+  const readiness = recovery
+    ? [...new Set(exs.map((e) => e.muscle_group).filter(Boolean))]
+        .map((g) => recovery[g]).filter(Boolean)
+    : [];
+  const anyWorked = readiness.includes("worked");
+  const anyRecovering = readiness.includes("recovering");
   const restedDays = day ? daysSince(day.last_completed_at) : null;
   const cooldown = plan?.cooldown_days ?? 7;
 
@@ -649,8 +705,18 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
 
       <h2 className="text-xl font-bold tracking-tight mt-2.5">{day ? day.name : routine.name}</h2>
       <p className="text-xs text-muted-foreground mt-0.5">
-        {plan ? `${plan.name} · ` : ""}{exs.length} exercises · ~{Math.max(15, Math.round(totalSets * 3.5))} min
+        {plan ? `${plan.name} · ` : ""}{exs.length} exercises · ~{estMinutes} min
+        {estLearned && <span className="text-muted-foreground/70"> (your average)</span>}
       </p>
+      {readiness.length > 0 && (
+        <p className="text-[11px] mt-1.5 text-muted-foreground">
+          {anyWorked
+            ? "Heads up — you trained these muscles today."
+            : anyRecovering
+              ? "These muscles are still recovering from yesterday."
+              : "These muscles are recovered and ready."}
+        </p>
+      )}
 
       <div className="flex items-center gap-1.5 mt-3.5">
         {exs.slice(0, 5).map((e, i) => (
@@ -705,11 +771,13 @@ function HeroCard({ plans, routines, workouts, programs = [], onOpenProgram, onS
 
 /* A plan is presented as a folder of routines (Hevy-style) — collapsed by default,
  * with all management tucked into a kebab menu. */
-function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown, onImportDays }) {
+function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown, onImportDays, recovery = null }) {
   const days = plan.days || [];
   const hasRoutines = (plan.routines || []).length > 0;
   const cooldown = plan.cooldown_days ?? 7;
-  const nextIdx = suggestedDayIndex(days);
+  // Same recovery-aware rule the hero uses — otherwise the two disagree about
+  // which day is "Next" on the same screen.
+  const nextIdx = suggestedDayIndex(days, recovery);
   const [open, setOpen] = useState(true);
   const [confirmDay, setConfirmDay] = useState(null);
 

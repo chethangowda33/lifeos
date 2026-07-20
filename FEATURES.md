@@ -317,7 +317,51 @@ table. This was the remaining manual gap in the health feature.
 
 **After both sessions: backend suite 43 passed · `CI=true npx craco build` compiles clean.**
 
-## 17. Still not covered
+## 17. The two big-ticket items (2026-07-21, session 3)
+
+These were flagged across sessions as the highest-value work left. Both done and verified live.
+
+### ⑨ NEXT UP is now recovery-aware and learns its time estimate
+Previously a pure rotation tracker: it read only `plans[0]`, ignored the muscle-recovery data
+the app already computes, and showed a constant `sets × 3.5` for duration.
+
+- **Recovery-aware pick.** `suggestedDayIndex(days, recoveryByMuscle)` now prefers the day
+  whose muscles are most recovered (`fresh` < `recovering` < `worked` from
+  `/workouts/muscle-volume`), breaking ties by longest-untrained. Called with one argument it
+  behaves exactly as before, so `useTrainReminder` is unaffected.
+- **Explained, not black-box.** The hero shows "you trained these muscles today" /
+  "still recovering from yesterday" / "recovered and ready" so the pick is legible.
+- **Consistency.** The plan folder's "Next" badge uses the same rule — the hero and the plan
+  card no longer disagree on the same screen (they did before this change).
+- **Learned duration.** `estimateSessionMinutes()` takes the median of your own past sessions
+  for that day/routine and tags it "(your average)", falling back to the old estimate until
+  there's history.
+
+**Verified live, driving the real UI:** built a 2-day plan where the rested-since-June day
+uses chest and the recently-trained day uses legs. With chest `fresh`, the hero picked the
+chest day (as the old rule would). Logged a chest session today → chest became `worked` →
+**the hero flipped to the legs day** while the old rule would still have said chest. After
+logging two legs sessions of 45 and 55 min, the hero showed **"~55 min (your average)"**
+instead of the constant.
+
+### ⑩ Body weight is now a real tracked metric with a trend
+It was a single overwritable scalar on `profile.weight_kg` — the app literally could not draw
+the one chart users most expect.
+
+- `weight` added to `METRIC_DEFS`; its healthy range is **personalised to the user's height**
+  (BMI 18.5–24.9 → kg) in `metric_definitions()`, which is now optional-auth.
+- The Body Metrics page is fully generic, so weight gets a **card and a trend line** for free.
+- **Two-way sync:** logging a weight updates `profile.weight_kg` (so BMI/BMR/body-fat estimates
+  move with it); editing weight in the profile/onboarding records a history point (so the trend
+  isn't stuck at one dot). Re-saving the same weight does **not** duplicate a point.
+
+**Verified live:** logged 75.5 → 75.0 → 74.4; the weight card rendered with **Ideal
+58.6–78.9 kg** (from the 178 cm height), a descending trend line confirmed in the DOM, BMI
+recomputed 23.7 → 23.5, and the profile weight followed. 4 new backend tests (`TestWeightMetric`).
+
+**Backend suite: 47 passed.** `CI=true npx craco build` compiles clean.
+
+## 18. Still not covered
 
 - **Deep workout-session UI** (live logging, supersets, plate calculator, rest timer) was not
   clicked through — it needs a started session and is the most stateful screen in the app.

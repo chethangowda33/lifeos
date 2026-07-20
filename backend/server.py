@@ -389,6 +389,10 @@ DEFAULT_WORKOUT_SETTINGS: Dict[str, Any] = {
 # Constants — body metric definitions with ideal ranges
 # ──────────────────────────────────────────────────────────────────────────────
 METRIC_DEFS: Dict[str, Dict[str, Any]] = {
+    # Weight is a first-class tracked metric, not just a profile field — otherwise the
+    # app can't draw the one trend users most expect. Its ideal range is height-dependent,
+    # so metric_definitions() overrides these placeholders per user (BMI 18.5–24.9).
+    "weight": {"label": "Weight", "unit": "kg", "ideal_min": 57, "ideal_max": 76, "auto": False},
     "body_fat": {"label": "Body Fat", "unit": "%", "ideal_min": 10, "ideal_max": 20, "auto": False},
     "muscle_mass": {"label": "Muscle Mass", "unit": "%", "ideal_min": 38, "ideal_max": 54, "auto": False},
     "bone_mass": {"label": "Bone Mass", "unit": "kg", "ideal_min": 2.5, "ideal_max": 3.5, "auto": False},
@@ -509,9 +513,17 @@ async def update_profile(payload: UserProfileIn, user=Depends(get_current_user))
     data = payload.model_dump()
     name = data.pop("name", None)
     merged = dict(user.get("profile") or {})
+    prev_weight = merged.get("weight_kg")
     for k, v in data.items():
         if v is not None:
             merged[k] = v
+    # Onboarding and the profile editor are where most people change their weight, so
+    # record a history point here too — otherwise the trend only ever has one dot.
+    if data.get("weight_kg") is not None and data["weight_kg"] != prev_weight:
+        await db.body_metrics.insert_one({
+            "user_id": str(user["_id"]), "metric": "weight", "value": float(data["weight_kg"]),
+            "recorded_at": datetime.now(timezone.utc).isoformat(),
+        })
     update = {"profile": merged}
     if name and name.strip():
         update["name"] = name.strip()
@@ -1047,8 +1059,17 @@ def _compute_metabolic_age(bmi: float, body_fat_pct: float, age: int, sex: str) 
 
 
 @api.get("/body-metrics/definitions")
-async def metric_definitions():
-    return METRIC_DEFS
+async def metric_definitions(user=Depends(get_optional_user)):
+    """Metric definitions, with weight's healthy range personalised to the user's
+    height (a 'good' weight means nothing without one). Stays public — anonymous
+    callers just get the placeholder range."""
+    defs = {k: dict(v) for k, v in METRIC_DEFS.items()}
+    height = ((user or {}).get("profile") or {}).get("height_cm") or 0
+    if height:
+        m2 = (height / 100.0) ** 2
+        defs["weight"]["ideal_min"] = round(18.5 * m2, 1)
+        defs["weight"]["ideal_max"] = round(24.9 * m2, 1)
+    return defs
 
 
 @api.get("/body-metrics/latest")
@@ -1072,6 +1093,7 @@ async def latest_metrics(user=Depends(get_current_user)):
     est_metabolic_age = _compute_metabolic_age(bmi, est_body_fat, age, sex)
 
     estimates = {
+        "weight": weight,  # falls back to the profile figure until a reading is logged
         "body_fat": est_body_fat,
         "muscle_mass": est_muscle,
         "bone_mass": est_bone,
@@ -1119,6 +1141,12 @@ async def log_metric(payload: BodyMetricIn, user=Depends(get_current_user)):
         "recorded_at": datetime.now(timezone.utc).isoformat(),
     }
     res = await db.body_metrics.insert_one(doc)
+    # Weight drives BMI, BMR and every body-fat/muscle estimate, so a new reading has
+    # to reach the profile too — otherwise the trend moves while the cards stay stale.
+    if payload.metric == "weight":
+        await db.users.update_one(
+            {"_id": user["_id"]}, {"$set": {"profile.weight_kg": payload.value}}
+        )
     doc["id"] = str(res.inserted_id)
     doc.pop("_id", None)
     return doc

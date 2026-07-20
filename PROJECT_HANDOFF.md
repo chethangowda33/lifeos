@@ -106,6 +106,29 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 3 (2026-07-21) — the two big-ticket items done. See `FEATURES.md` §17.**
+- **NEXT UP is no longer a dumb rotation tracker.** `suggestedDayIndex(days, recoveryByMuscle)`
+  now prefers the most-recovered day (fresh<recovering<worked from /workouts/muscle-volume),
+  ties broken by longest-untrained. One-arg calls behave as before, so useTrainReminder is
+  untouched. The hero explains itself ("you trained these muscles today" etc.), the plan
+  folder's "Next" badge uses the SAME rule (they used to disagree), and duration is now the
+  median of your real sessions tagged "(your average)" via `estimateSessionMinutes()` instead
+  of the `sets × 3.5` constant. Verified live: logging a chest session today flipped the pick
+  from the rested-since-June chest day to the fresh legs day; duration showed "~55 min".
+- **Body weight is a first-class metric now.** Added `weight` to METRIC_DEFS; range is
+  personalised from height (BMI band → kg) in `metric_definitions()` (now optional-auth).
+  Two-way sync: logging weight updates profile.weight_kg (drives BMI/BMR/estimates); editing
+  the profile records a history point; re-saving the same value doesn't duplicate. The generic
+  Body Metrics page gives it a card + trend line for free. Verified live: 75.5→75.0→74.4 drew a
+  descending trend, ideal 58.6–78.9 kg from 178cm, BMI recomputed. 4 new tests.
+- **47 tests pass** (43 + 4 weight) · `CI=true npx craco build` clean · DB restored (13
+  workouts, weight history 0, profile 75, Barbell Bench PR 99).
+- **Remaining known items:** deep workout-session UI still not clicked (needs a live session);
+  push not verified actually delivering (needs VAPID keys + external cron — see session 2);
+  `DEPLOYMENT.md` still has the bad `--port 8001` edit (untouched, please confirm). NEXT UP
+  learned-duration is keyed on `plan_id + day_index`, which shifts if you reorder/remove plan
+  days — acceptable (worst case it reverts to the estimate), noted here so it isn't a surprise.
+
 **SESSION 2 (2026-07-21) — 5 improvements shipped + UI click-through. See `FEATURES.md` §15-17.**
 - **UI was driven in a real browser this time.** All 11 routes render with real data and
   **zero console errors**. Clicked through: login, habit create (emoji/type/target), habit

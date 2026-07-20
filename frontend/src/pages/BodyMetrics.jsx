@@ -62,7 +62,7 @@ export default function BodyMetrics() {
           <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Composition</div>
           <h1 className="text-4xl font-semibold tracking-tight mt-1">Body Metrics</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Enter age + height + weight and all 7 metrics auto-predict. Log a real reading any time to override an estimate.
+            Enter age + height + weight and every metric auto-predicts. Log a real reading any time to override an estimate and build a trend.
           </p>
         </div>
         <div className="flex gap-2">
