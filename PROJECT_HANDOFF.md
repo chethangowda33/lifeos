@@ -1,4 +1,4 @@
-# LifeOS — Handoff (current as of 2026-07-15)
+# LifeOS — Handoff (current as of 2026-07-16)
 
 > Paste this whole file at the start of a new chat. It is complete context — don't re-read old chats.
 
@@ -44,6 +44,42 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - Exercise picker (`ExercisePicker.jsx`, Recent + create custom), exercise detail (charts/PRs), muscle heatmap.
   - **Picker refined 2026-07-15** (routine-builder fixes): (1) **multi-select** — tick any number of exercises, footer "Add N" adds them all in one pass (`onAdd(list)`); replace-mode in a live session stays single-tap (`multiSelect={picker?.mode!=='replace'}`, `onPick`). (2) **No duplicates** — `existingIds` prop marks exercises already in the routine/day as "Added" + disabled (RoutineBuilder dedupes across the routine; PlanBuilder per day; both also filter dupes on add). (3) **Filters persist** across close/reopen for the whole build session — filters only reset when the parent bumps `resetSignal` (a `buildId` incremented each new routine/plan build), NOT on every open. (4) **Inline detail** — each row has an info button → opens `ExerciseDetailDialog` (Summary/History/How-to) without leaving the picker.
 - Intelligence: progression suggestions, PRs, volume landmarks, plateau/deload flags.
+
+**Workout restructure (2026-07-16) — phases 1-6 done, all deployed & verified**
+- **Shared libs** (`features/workout/lib/`): `payload.js` = the ONLY place a workout
+  API body is built (numeric coercion; reps/target_reps→int, rest_timer never null,
+  drops exercises without `exercise_id`) + `describeApiError`. `stats.js` = the ONLY
+  volume/sets/e1rm maths. Used by live save, edit-workout and the offline queue —
+  this is what killed the recurring 422 / "volume 0" class of bugs. **Don't
+  reintroduce inline payload or volume code.**
+- **Session split**: `features/workout/session/` = `SetRow`, `ExerciseCard`,
+  `RestTimer`, `StatPill`. `WorkoutSession.jsx` 1431→~950 lines (orchestrator).
+- **Routine folders** (Hevy-style): `folder` field on routines, `PUT /routines/{id}/folder`,
+  collapsible groups + "Move to folder" in the routine menu.
+- **Plans/Splits**: plans now ALSO carry `routine_ids[]` (+`routine_count`, enriched
+  `routines[]` on GET). `POST /plans/{id}/import-days` copies embedded days into real
+  routines foldered under the plan name — **non-destructive, `days[]` is kept**, no-ops
+  if already imported. Applying an Explore program runs this automatically.
+- **Two Hevy features shipped**: (1) **"Update routine?"** — a session started from a
+  routine that drifts (added/removed exercises) offers to save changes back on finish
+  (`routineBaseRef` baseline → diff → `PUT /routines/{id}`). (2) **Finish milestone** —
+  "This is your 9th workout" + "That's 4 hours of effort and 7,168 kg lifted", also on
+  the share PNG (`/workouts/stats` fetched post-save).
+- **Edit a saved workout**: `PUT /workouts/{id}` + `EditWorkoutDialog` (Progress → pencil).
+  Edits kg/reps/**RPE**/**set type**, add/remove sets & exercises. Recomputes volume/e1rm,
+  keeps the original date. Does NOT re-award PRs.
+- **Delete custom exercises**: `DELETE /exercises/{id}` scoped to `{user_id, custom:true}` —
+  library exercises are impossible to delete. Trash icon on custom rows in the picker.
+- **Mobile fixes**: set-row grid was ~316px of fixed columns on a ~311px phone, which
+  collapsed PREVIOUS (rendering "60 kg × 10" truncated to a meaningless "0") and squeezed
+  RPE out entirely. Now mobile-first columns + `gap-1` + `px-1` inputs; previous text is
+  compact ("60×10"). **Recurring bug pattern: `opacity-0 group-hover:*` = invisible on
+  mobile** — this hit the plan-day reorder arrows, routine menu, and Progress edit/delete.
+  All made always-visible. Check for this whenever adding row actions.
+- **New plan builder**: day-by-day builder (`PlanBuilder`, add days + exercises per day) is
+  the flow the user wants. I removed it once (3b70085) thinking it duplicated the routine
+  builder — **that was wrong, it was restored**. `SplitEditor` (build a plan by picking
+  existing routines) is kept as a secondary option, linked from inside the New Plan dialog.
 - **Empty state = goal-filtered recommendation** (RECO_GOALS → program.goal, week-day preview). **Reworked 2026-07-15:** shows exactly **one** best-fit recommendation (no "More programs" list). Dismissing it (× or swipe, `SwipeToDismiss.jsx`) sets `lifeos:reco-dismissed` and stops all recommendations — **no auto-replacement**. The goal prompt + recommendation only appear for a genuine fresh start (`workouts` empty AND not previously built by hand); building a routine/plan manually sets `lifeos:built-manually` which suppresses them permanently. A "Show recommendation" button lets a fresh user un-dismiss. (Old per-program `lifeos:dismissed-programs` key retired.)
 
 **Dashboard** (`pages/Dashboard.jsx`): `TodayHero` band (SVG weekly-goal ring, streak, muscle-recovery chips from `/workouts/muscle-volume`), stat cards, **Weekly AI recap** card (`GET /coach/recap`, Groq), resume/volume chart, records, muscle focus. **First-run onboarding** (`Onboarding.jsx`, redesigned 2026-07-14) for fresh accounts — **full-screen, one-question-per-screen wizard** (name → age → height → weight → sex → goal). Rendered via **`createPortal` to `document.body`** (must — Dashboard's `animate-fade-up` transform would otherwise trap the `fixed inset-0` overlay inside the content area). Progress bar + back arrow + Skip (finishes early). Age/height/weight use `ScalePicker.jsx` (draggable horizontal ruler, scroll-snap; value stays null until the user scrolls, so untouched fields aren't saved). Sex/goal = big card radios. Saved via `updateProfile` (name → top-level, rest → `profile`) → **Body Metrics** auto-fills BMI/BMR + 7 estimates. `PUT /auth/profile` accepts `name`.
@@ -69,6 +105,50 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**NEXT UP (2026-07-16) — start here**
+- **APK / Android** — DELIBERATELY PARKED by the user ("hold apk for later"). All repo-side
+  prep is DONE and deployed: `frontend/public/.well-known/assetlinks.json` (package
+  `com.cglifeos.app`, placeholder fingerprint) is live and serving, manifest is TWA-ready,
+  and `APK_SETUP.md` has the full step-by-step. Remaining work is the user's: generate the
+  APK via pwabuilder.com, paste the real SHA-256 fingerprint into assetlinks.json, push.
+  **Don't start this until the user says go.**
+- **Use the app for real sessions** — the user's own suggestion-worthy next step. The
+  backend/data layer is audited clean (see below); remaining issues are UX papercuts that
+  only surface in the gym.
+- **Local dev is DOWN** — Docker Desktop isn't running, so local Mongo (:27017) and the
+  backend can't start. Fix: open Docker Desktop manually, then `docker start lifeos-mongo`.
+  Everything since 2026-07-16 was verified against **prod** instead (works fine, but
+  remember to clean up test data — see below).
+- **Verifying against prod**: login `cg3@lifeos.com`/`test1234` works on the Render API.
+  ALWAYS delete test routines/plans/workouts afterwards, and never leave a real workout
+  modified (I edited one during testing and restored it exactly).
+
+**Workout feature audit (2026-07-16): 18/18 reads + 14/14 write flows PASS.**
+Library/search/filters, programs, routines CRUD+folder+reorder, plans CRUD+import-days,
+workouts create/edit/delete, previous/records/history/substitutes, progression,
+muscle-volume, strength-standards, settings — all green. One gap found and fixed
+(custom exercises had no delete). Confirmed `PUT /plans/{id}` does NOT wipe `routine_ids`
+(guarded conditionally) — so reordering a day or changing the repeat guard is safe.
+
+**Known caveats for the next session**
+- `computer{action:"screenshot"}` **times out** in this environment, and real-click
+  coordinate targeting is unreliable (clicks silently miss, which once looked like a save
+  bug but wasn't). Verify UI work by reading the DOM via `javascript_tool` AND confirming
+  the result against the API/DB — the DB check is what carries the weight.
+- Radix dropdowns don't open from a synthetic `.click()`; they need a real pointer event,
+  and a synthetic click on a menu item can leave the menu stuck open and swallowing clicks.
+- Vercel builds with `CI=true`, so **ESLint warnings fail the build** — always run
+  `CI=true npx craco build` before pushing.
+- The PWA service worker caches aggressively; after a deploy the user must fully close and
+  reopen the app. SW cache is at `lifeos-v2` (bump it when caching strategy changes).
+
+**Not built / deferred**
+- Phase 5 as originally scoped (session `mode="edit"` replacing `EditWorkoutDialog`) was
+  deliberately NOT done — the session's draft/resume/timer logic is the fragile part. The
+  actual gap it targeted (RPE + set types when editing) was closed inside the dialog instead.
+- Hevy share-card extras: multiple card variants / carousel, "Workout Link", "Copy Text".
+- Offline queue only covers workout saves (habits/sleep/health still fail hard offline).
 - **Universal health sync (user's explicit direction 2026-07-14):** NOT Fastrack-specific — support any watch/any phone (steps, stress, HR, HRV, SpO2, distance, sleep…). Architecture = read from the phone's health hub, never per-brand APIs. iPhone → Apple Health; Android → Health Connect. User's Fastrack app syncs the watch over Bluetooth (+QR pairing) and **can write to Apple Health if allowed** → confirms iPhone path is viable. Backend ingest already widened to accept the full param set. **NEXT: confirm iPhone (implied) then hand user the exact Apple Shortcuts "Automation" recipe** — read the health metrics + POST JSON to `https://lifeos-api-g6hq.onrender.com/api/health/ingest` with header `X-Health-Token`, on a daily schedule. (Android equivalent = Tasker/Macrodroid + Health Connect, build later if needed.)
 - **PWA** — installable + offline app shell + **offline workout write-queue DONE** (2026-07-14, see §5 PWA). Remaining: extend the queue to habits/sleep/health writes, and real **background push** for train reminders (currently in-app only via `hooks/useTrainReminder.js`).
 - **Journal** — REMOVED entirely 2026-07-14 (route, nav item, `itemJournal` testId all deleted; no backend code existed). Do not re-add unless asked.
