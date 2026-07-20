@@ -1,6 +1,7 @@
 // Every network call the Intake feature makes. Nothing outside this folder
 // talks to /api/intake, so the backend contract has exactly one consumer.
 import api from "@/api";
+import { sendOrQueue } from "@/lib/offlineQueue";
 
 export const getMeta = () => api.get("/intake/meta").then((r) => r.data);
 export const getStatus = () => api.get("/intake/status").then((r) => r.data);
@@ -23,8 +24,11 @@ export const analyzePhoto = (image, hint = "") =>
 export const analyzeText = (text) =>
   api.post("/intake/analyze/text", { text }).then((r) => r.data);
 
+// Manual/confirmed entries queue offline and replay on reconnect. (The analyze
+// calls above can't — they need the model, so they stay online-only.)
 export const createEntry = (entry) =>
-  api.post("/intake/entries", entry).then((r) => r.data);
+  sendOrQueue({ url: "/intake/entries", body: entry, label: entry?.name || "Meal" })
+    .then((r) => (r?.queued ? { ...entry, id: `pending-${Date.now()}`, pending: true } : r.data));
 
 export const updateEntry = (id, entry) =>
   api.put(`/intake/entries/${id}`, entry).then((r) => r.data);

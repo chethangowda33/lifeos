@@ -10,6 +10,8 @@ import {
   Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip,
 } from "recharts";
 import { Moon, Plus, Star, Trash2 } from "lucide-react";
+import { sendOrQueue } from "@/lib/offlineQueue";
+import localDate from "@/lib/localDate";
 
 // hours between a bedtime and wake time (handles crossing midnight)
 function hoursBetween(bed, wake) {
@@ -173,7 +175,13 @@ function SleepDialog({ open, onClose, onSaved }) {
   const save = async () => {
     setSaving(true);
     try {
-      await api.post("/sleep", { hours, quality, bedtime, wake_time: wake });
+      // Queues offline and syncs on reconnect — the night is upserted by date, so
+      // a late replay still lands on the right night rather than duplicating it.
+      await sendOrQueue({
+        url: "/sleep",
+        body: { hours, quality, bedtime, wake_time: wake, date: localDate() },
+        label: "Sleep",
+      });
       onSaved();
     } finally {
       setSaving(false);

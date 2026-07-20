@@ -165,22 +165,32 @@ def serialize_user(doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-async def get_current_user(request: Request) -> Dict[str, Any]:
-    token = request.cookies.get("access_token")
-    if not token:
-        auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer "):
-            token = auth[7:]
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
+def _decode_access_token(token: str) -> Optional[Dict[str, Any]]:
+    """Decode an access token, or None if it is expired, invalid, or the wrong type."""
     try:
         payload = jwt.decode(token, _jwt_secret(), algorithms=[JWT_ALGORITHM])
-    except jwt.ExpiredSignatureError:
+    except jwt.InvalidTokenError:  # covers ExpiredSignatureError
+        return None
+    return payload if payload.get("type") == "access" else None
+
+
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    # Try EVERY credential presented, not just the first one. Reading the cookie
+    # first and stopping there meant a stale cookie shadowed a valid Bearer token
+    # and returned 401 while the caller was holding good credentials.
+    candidates = []
+    cookie_token = request.cookies.get("access_token")
+    if cookie_token:
+        candidates.append(cookie_token)
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        candidates.append(auth[7:])
+    if not candidates:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    payload = next((p for p in (_decode_access_token(t) for t in candidates) if p), None)
+    if not payload:
         raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Invalid token type")
     try:
         user = await db.users.find_one({"_id": ObjectId(payload["sub"])})
     except Exception:
@@ -354,6 +364,7 @@ class WorkoutSettingsIn(BaseModel):
     plate_inventory: Optional[List[float]] = None
     train_reminder_enabled: Optional[bool] = None
     train_reminder_time: Optional[str] = None  # "HH:MM" 24h
+    tz_offset_minutes: Optional[int] = None  # local offset from UTC, for background push
 
     model_config = {"extra": "ignore"}
 
@@ -1585,6 +1596,98 @@ async def update_workout_settings(payload: WorkoutSettingsIn, user=Depends(get_c
     return merged
 
 
+# ── WEB PUSH (background train reminders) ─────────────────────────────────────
+# useTrainReminder.js only fires while a tab is open. These endpoints let the
+# service worker be notified with the app CLOSED. Degrades gracefully: with no
+# VAPID keys set, /push/config reports unconfigured and the UI keeps the in-app
+# reminder instead of offering a broken toggle.
+class PushSubscriptionIn(BaseModel):
+    endpoint: str
+    keys: Dict[str, str] = {}
+    model_config = {"extra": "ignore"}
+
+
+def push_configured() -> bool:
+    return bool(os.environ.get("VAPID_PRIVATE_KEY") and os.environ.get("VAPID_PUBLIC_KEY"))
+
+
+@api.get("/push/config")
+async def push_config():
+    return {"configured": push_configured(), "public_key": os.environ.get("VAPID_PUBLIC_KEY", "")}
+
+
+@api.post("/push/subscribe")
+async def push_subscribe(payload: PushSubscriptionIn, user=Depends(get_current_user)):
+    await db.push_subscriptions.update_one(
+        {"endpoint": payload.endpoint},
+        {"$set": {"user_id": str(user["_id"]), "endpoint": payload.endpoint,
+                  "keys": payload.keys, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/push/unsubscribe")
+async def push_unsubscribe(payload: PushSubscriptionIn, user=Depends(get_current_user)):
+    res = await db.push_subscriptions.delete_many(
+        {"endpoint": payload.endpoint, "user_id": str(user["_id"])}
+    )
+    return {"ok": True, "removed": res.deleted_count}
+
+
+@api.post("/push/dispatch")
+async def push_dispatch(request: Request):
+    """Send train reminders that are due. Called by an EXTERNAL scheduler (cron-job.org,
+    GitHub Actions, …) with the PUSH_DISPATCH_SECRET — the free Render tier sleeps, so
+    the app cannot reliably wake itself. Idempotent per user per day."""
+    secret = os.environ.get("PUSH_DISPATCH_SECRET", "")
+    if not secret or request.headers.get("X-Dispatch-Secret") != secret:
+        raise HTTPException(401, "Bad dispatch secret")
+    if not push_configured():
+        return {"ok": False, "reason": "VAPID keys not configured", "sent": 0}
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        return {"ok": False, "reason": "pywebpush not installed", "sent": 0}
+
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    sent = 0
+    async for u in db.users.find({"workout_settings.train_reminder_enabled": True}):
+        st = u.get("workout_settings") or {}
+        when = st.get("train_reminder_time") or ""
+        # Reminder times are the user's local wall clock; offset is stored at subscribe time.
+        offset_min = int(st.get("tz_offset_minutes") or 0)
+        local_now = now + timedelta(minutes=offset_min)
+        if not when or local_now.strftime("%H:%M") < when:
+            continue
+        if st.get("last_push_date") == today:
+            continue  # already reminded today
+        subs = await db.push_subscriptions.find({"user_id": str(u["_id"])}).to_list(10)
+        if not subs:
+            continue
+        body = "Your next session is ready."
+        plan = await db.plans.find_one({"user_id": str(u["_id"])})
+        if plan and plan.get("days"):
+            # Same rule the NEXT UP card uses: the day rested longest.
+            nxt = min(plan["days"], key=lambda d: d.get("last_completed_at") or "")
+            body = f"{nxt.get('name')} is next in your rotation."
+        for sub in subs:
+            try:
+                webpush(
+                    subscription_info={"endpoint": sub["endpoint"], "keys": sub.get("keys", {})},
+                    data=json.dumps({"title": "Time to train 🏋️", "body": body, "url": "/workout"}),
+                    vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
+                    vapid_claims={"sub": f"mailto:{os.environ.get('ADMIN_EMAIL', 'admin@lifeos.app')}"},
+                )
+                sent += 1
+            except WebPushException:
+                # 404/410 = the browser dropped the subscription; stop retrying it.
+                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+        await db.users.update_one({"_id": u["_id"]}, {"$set": {"workout_settings.last_push_date": today}})
+    return {"ok": True, "sent": sent}
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # INTELLIGENCE LAYER — PRs, e1RM, progression, volume landmarks, substitutes
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2432,6 +2535,29 @@ async def build_user_context(user: Dict[str, Any]) -> str:
     except Exception:
         pass
 
+    # Habits — 7-day adherence per habit, so the coach can coach the habits too.
+    try:
+        habits = await db.habits.find({"user_id": uid}).to_list(50)
+        if habits:
+            week = [(datetime.now(timezone.utc).date() - timedelta(days=i)).isoformat() for i in range(7)]
+            logs = await db.habit_logs.find({"user_id": uid, "date": {"$in": week}}).to_list(500)
+            by_habit: Dict[str, List[Dict[str, Any]]] = {}
+            for lg in logs:
+                by_habit.setdefault(lg.get("habit_id", ""), []).append(lg)
+            parts = []
+            for h in habits[:8]:
+                mine = by_habit.get(str(h["_id"]), [])
+                if h.get("type") == "count":
+                    tgt = h.get("target") or 0
+                    hits = sum(1 for lg in mine if tgt and (lg.get("value") or 0) >= tgt)
+                    avg = round(sum(lg.get("value") or 0 for lg in mine) / 7, 1)
+                    parts.append(f"{h.get('name')} {hits}/7 days at target (avg {avg} {h.get('unit', '')}".strip() + ")")
+                else:
+                    parts.append(f"{h.get('name')} {sum(1 for lg in mine if lg.get('completed'))}/7 days")
+            lines.append("Habits (last 7 days): " + "; ".join(parts) + ".")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
@@ -2449,6 +2575,8 @@ COACH_SYSTEM = (
     " than asking the user to copy them across by hand.\n"
     "- When present, factor in their watch/health data (steps, resting HR, HRV, stress, SpO2) and sleep —"
     " e.g. flag low sleep or high stress before pushing hard training, and connect recovery to performance.\n"
+    "- Habit adherence is given as x/7 days. Treat a slipping habit as a lead, not a scolding: connect it to"
+    " what the training and recovery data show, and suggest one small correction.\n"
     "- Use the reference knowledge for general facts. Never invent studies, citations, or statistics.\n"
     "- Be direct, specific, and actionable. Use short paragraphs and bullets; bold key numbers.\n"
     "- If the user has little or no logged data, say so and give one concrete first step.\n"

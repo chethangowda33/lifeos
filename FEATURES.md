@@ -238,10 +238,90 @@ Verified: 500 kg PR retracts to 60 kg on delete; 300 kg retracts to 30 kg on edi
 
 ---
 
-## 15. What this audit did *not* cover
+## 15. UI click-through (2026-07-21, session 2)
 
-Stated plainly so it isn't mistaken for more than it is:
+Driven in a real browser against the local stack — logged in through the form, clicked
+buttons, verified each result in MongoDB.
 
-- **Per-button UI interaction was not clicked through.** The environment's own constraints (documented in `PROJECT_HANDOFF.md` §7) make it unreliable: screenshots time out, click coordinate targeting silently misses, and Radix dropdowns don't open from synthetic clicks. What is verified is that every endpoint each button calls behaves correctly with real data.
-- **The frontend was not rebuilt** this session (no frontend files were changed). Run `CI=true npx craco build` before any push that touches `frontend/`.
-- **Prod was not touched** — everything ran against local Mongo.
+**All 11 routes render with real data and zero console errors:** `/login`, `/dashboard`,
+`/workout`, `/workout/settings`, `/habits`, `/sleep`, `/progress`, `/intake`, `/coach`,
+`/connections`, `/admin`, `/body-metrics`.
+
+Flows exercised end-to-end by clicking:
+
+| Flow | Result |
+|---|---|
+| Login form | Authenticated, dashboard rendered |
+| Create habit (name, emoji, "Hit a target", unit) | Correct doc in Mongo — target 8, unit `glasses`, emoji 💧 |
+| Conditional UI | "Hit a target" revealed the target/unit fields |
+| Habit counter +8 | `1/8 → 8/8`, streak badge appeared, `habit_logs.value=8` |
+| **Offline habit write** | Backend killed → click → queued in localStorage, **UI held at 9/8** |
+| **Queue flush** | Backend restarted → `online` event → queue drained → `value=9` in Mongo |
+| Log sleep (quality 4, Save) | Stored — and dated **local** day, see §16 |
+| Coach chat via UI | Asked lifetime workouts → answered **13** with sources cited |
+
+**A real environment caveat, confirmed:** after a Radix dialog closes, its overlay can stay
+mounted and swallow clicks — three counter clicks fired no network request at all. The
+network log is what caught it (`POST /habits` present, `/log` absent). Press Escape and
+re-read the page before concluding a button is broken.
+
+## 16. Second round of fixes (2026-07-21, session 2)
+
+### ④ Habit and sleep logs landed on the wrong day — **fixed**
+`_today_str()` uses the **UTC** date. In IST (+5:30) anything logged between midnight and
+05:30 recorded against *yesterday* — silently breaking streaks for exactly the habits people
+tick late at night ("read before bed", "sleep by 11"). The API already accepted an optional
+`date`; the client never sent one. Added `lib/localDate.js` and now sends the user's own
+calendar date from Habits and Sleep. Verified live: at 00:50 IST the sleep log stored
+`2026-07-21` while UTC was still `2026-07-20`.
+
+### ⑤ Habits are now in the AI coach context
+7-day adherence per habit (`x/7 days at target`, plus the average for count habits) is fed
+to `build_user_context`, and `COACH_SYSTEM` tells it to treat a slipping habit as a lead
+rather than a scolding. Verified: the coach listed each habit with its adherence.
+
+### ⑥ Offline queue extended beyond workouts
+`sendOrQueue()` in `lib/offlineQueue.js` is the shared path. Now used by habit check/count
+logs, sleep, and manual intake entries. Callers keep their optimistic UI when a write is
+queued — previously the habit toggle refetched and **silently reverted the user's tap**.
+Analyze-by-photo/text stay online-only (they need the model).
+
+### ⑦ Stale cookie no longer shadows a valid Bearer token
+`get_current_user` read the cookie first and stopped there, so an expired cookie returned
+401 while the caller held good credentials. It now tries **every** credential presented.
+Verified: valid Bearer + junk cookie → 200; junk cookie alone → **still 401**.
+
+### ⑧ Background push for train reminders
+`useTrainReminder` only fires with a tab open. Added the full path: `push`/`notificationclick`
+handlers in `sw.js` (cache bumped to `lifeos-v3`), `usePushSubscription` hook, a toggle in
+Workout Settings, and backend `/push/config`, `/push/subscribe`, `/push/unsubscribe`,
+`/push/dispatch`. Verified subscribe/unsubscribe round-trip and that `/push/dispatch`
+rejects a bad secret (401).
+
+**Deployment note — this is not live until you do two things:**
+1. Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `PUSH_DISPATCH_SECRET` on Render.
+   Generate keys with `python -c "from py_vapid import Vapid01; v=Vapid01(); v.generate_keys(); print(v.public_key, v.private_key)"`.
+2. Point an **external** scheduler (cron-job.org, GitHub Actions) at
+   `POST /api/push/dispatch` with header `X-Dispatch-Secret`, every ~15 min. The free Render
+   tier sleeps, so the app cannot wake itself — this is why dispatch is a pulled endpoint
+   rather than an internal loop. Until both are done, `/push/config` reports
+   `configured: false` and the UI simply doesn't offer the toggle.
+
+Also: iOS delivers web push **only to a PWA installed to the Home Screen**. The toggle copy
+says so rather than silently doing nothing in a Safari tab.
+
+### Health sync last mile — `HEALTH_SYNC_SETUP.md`
+Step-by-step Apple Shortcuts recipe (which Health samples, which actions, the exact JSON),
+the full accepted field table, the Android/Health Connect equivalent, and a troubleshooting
+table. This was the remaining manual gap in the health feature.
+
+**After both sessions: backend suite 43 passed · `CI=true npx craco build` compiles clean.**
+
+## 17. Still not covered
+
+- **Deep workout-session UI** (live logging, supersets, plate calculator, rest timer) was not
+  clicked through — it needs a started session and is the most stateful screen in the app.
+  Its endpoints are all verified; the interaction is not. This is what real gym use will test.
+- **Prod was never touched** — everything ran against local Mongo.
+- **Push was not verified delivering an actual notification**, because that needs the VAPID
+  keys and scheduler above. The plumbing is tested; the live delivery is not.

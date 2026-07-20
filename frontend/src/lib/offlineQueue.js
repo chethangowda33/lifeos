@@ -25,6 +25,22 @@ export function enqueue({ url, method = "post", body, label }) {
   write(q);
 }
 
+/* Send a write, falling back to the queue when the network is the problem.
+   Returns `{ queued: true }` if it was parked — callers should keep their
+   optimistic UI in that case instead of refetching (a refetch would revert it).
+   Real API errors (4xx/5xx) still throw so the caller can surface them. */
+export async function sendOrQueue({ url, method = "post", body, label }) {
+  try {
+    return await api.request({ url, method, data: body });
+  } catch (e) {
+    if (isNetworkError(e) || !navigator.onLine) {
+      enqueue({ url, method, body, label });
+      return { queued: true };
+    }
+    throw e;
+  }
+}
+
 let flushing = false;
 
 // Replay queued requests in order. Stops on network/5xx (retry later), drops on 4xx (won't succeed).

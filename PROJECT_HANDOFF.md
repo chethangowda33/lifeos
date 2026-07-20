@@ -106,6 +106,40 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 2 (2026-07-21) — 5 improvements shipped + UI click-through. See `FEATURES.md` §15-17.**
+- **UI was driven in a real browser this time.** All 11 routes render with real data and
+  **zero console errors**. Clicked through: login, habit create (emoji/type/target), habit
+  counter to target, sleep logging, coach chat. Each result verified in Mongo.
+  - **Environment gotcha confirmed:** a closed Radix dialog can leave an overlay that
+    swallows clicks — 3 clicks fired NO network request. The network log caught it. Press
+    Escape / re-navigate before believing a button is broken.
+- **The 5 queued items are done:**
+  1. **Habits → AI coach context** (7-day adherence per habit; coach verified listing them).
+  2. **Offline queue beyond workouts** — shared `sendOrQueue()`, now covers habit logs, sleep
+     and manual intake. Callers keep optimistic UI when queued; the habit toggle used to
+     **silently revert the user's tap** offline. Verified end-to-end: killed the backend →
+     click queued + UI held at 9/8 → restarted → queue drained → `value=9` in Mongo.
+  3. **Background push** — `sw.js` push/notificationclick (cache `lifeos-v3`),
+     `usePushSubscription`, settings toggle, and `/push/config|subscribe|unsubscribe|dispatch`.
+     **NOT live until you set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `PUSH_DISPATCH_SECRET`
+     on Render AND point an external cron at `POST /api/push/dispatch` (header
+     `X-Dispatch-Secret`).** Dispatch is a *pulled* endpoint on purpose — the free Render tier
+     sleeps and cannot wake itself. Degrades safely: no keys → toggle isn't offered.
+     Added `pywebpush` to requirements.
+  4. **Auth cookie/Bearer** — `get_current_user` now tries EVERY credential, not just the
+     cookie. Valid Bearer + junk cookie → 200; junk cookie alone → still 401.
+  5. **Health sync last mile** — `HEALTH_SYNC_SETUP.md`: the exact Apple Shortcuts recipe,
+     full field table, Android/Health Connect path, troubleshooting.
+- **Bonus bug found while clicking (④):** habit/sleep logs used the **UTC** date, so in IST
+  anything logged 00:00–05:30 recorded against *yesterday* and broke streaks. Added
+  `lib/localDate.js`; clients now send their own calendar date. Verified at 00:50 IST: stored
+  `2026-07-21` while UTC was `2026-07-20`.
+- **Still not done:** deep workout-session UI (live logging/supersets/rest timer) not clicked —
+  most stateful screen, needs a started session; real gym use is the test. Push not verified
+  actually delivering (needs the keys + cron above). NEXT UP intelligence and body-weight
+  time series still open — still the two highest-value items.
+- **43 tests pass · `CI=true npx craco build` compiles clean.**
+
 **FULL AUDIT + 3 FIXES (2026-07-21) — read `FEATURES.md` first**
 - **`FEATURES.md` is new** — a complete per-feature catalogue (what it is, how it works, what
   the user clicks, what they can modify, what to improve) plus the audit evidence. It is the

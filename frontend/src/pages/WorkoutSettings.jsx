@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import usePushSubscription from "@/hooks/usePushSubscription";
 import { ArrowLeft, Settings2 } from "lucide-react";
 
 const REST_PRESETS = [0, 30, 60, 90, 120, 150, 180, 240, 300];
@@ -24,6 +25,7 @@ export default function WorkoutSettings() {
   const { toast } = useToast();
   const [s, setS] = useState(null);
   const [platesText, setPlatesText] = useState("");
+  const push = usePushSubscription();
 
   useEffect(() => {
     api.get("/workout-settings").then((r) => {
@@ -131,7 +133,7 @@ export default function WorkoutSettings() {
           <div>
             <div className="font-semibold">Train reminder</div>
             <div className="text-xs text-muted-foreground mt-0.5">
-              Notification at your usual training time, naming the next day in your rotation. Fires while the app is open (background push comes with the PWA).
+              Notification at your usual training time, naming the next day in your rotation. Fires while the app is open.
             </div>
           </div>
           <Switch
@@ -150,6 +152,22 @@ export default function WorkoutSettings() {
               value={s.train_reminder_time || "18:00"}
               onChange={(e) => save({ train_reminder_time: e.target.value })}
               className="w-36"
+            />
+          </div>
+        )}
+        {s.train_reminder_enabled && push.supported && push.configured && (
+          <div className="flex items-center justify-between gap-4 pt-3 border-t border-border">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">Also remind me when the app is closed</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Sends a push notification even when LifeOS isn&apos;t open. On iPhone, add
+                LifeOS to your Home Screen first — iOS only delivers push to installed apps.
+              </div>
+            </div>
+            <Switch
+              checked={push.subscribed}
+              disabled={push.busy}
+              onCheckedChange={(v) => (v ? push.subscribe() : push.unsubscribe())}
             />
           </div>
         )}

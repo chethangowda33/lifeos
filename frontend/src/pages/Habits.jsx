@@ -8,6 +8,8 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
 import { Plus, Flame, Check, Trash2, Minus, ListChecks } from "lucide-react";
+import { sendOrQueue } from "@/lib/offlineQueue";
+import localDate from "@/lib/localDate";
 
 const EMOJI_CHOICES = ["✅", "💧", "🏃", "📚", "🧘", "🥗", "💊", "😴", "🚭", "🧠", "☀️", "💪"];
 
@@ -40,14 +42,22 @@ export default function Habits() {
 
   const toggleCheck = async (h) => {
     setHabits((arr) => arr.map((x) => (x.id === h.id ? { ...x, today_done: !x.today_done } : x))); // optimistic
-    await api.post(`/habits/${h.id}/log`, {}).catch(() => {});
+    // Offline the tick is queued and the optimistic state stands — reloading here
+    // would refetch the server's old value and silently undo the user's tap.
+    const r = await sendOrQueue({
+      url: `/habits/${h.id}/log`, body: { date: localDate() }, label: h.name,
+    }).catch(() => null);
+    if (r?.queued) return;
     load();
   };
 
   const setCount = async (h, value) => {
     const v = Math.max(0, value);
     setHabits((arr) => arr.map((x) => (x.id === h.id ? { ...x, today_value: v, today_done: v >= (x.target || 1) } : x)));
-    await api.post(`/habits/${h.id}/log`, { value: v }).catch(() => {});
+    const r = await sendOrQueue({
+      url: `/habits/${h.id}/log`, body: { value: v, date: localDate() }, label: h.name,
+    }).catch(() => null);
+    if (r?.queued) return;
     load();
   };
 
