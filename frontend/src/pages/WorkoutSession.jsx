@@ -448,6 +448,21 @@ export default function WorkoutSession() {
   };
 
   // ── Superset grouping ──────────────────────────────────────────────────────
+  /* A superset needs at least two exercises. Replacing or removing a member can
+     leave its partner alone in the group — which renders as a "superset" of one
+     and saves a meaningless superset_group_id. Clear those. */
+  const pruneLoneSupersets = (arr) => {
+    const counts = arr.reduce((m, e) => {
+      if (e.superset_group_id) m[e.superset_group_id] = (m[e.superset_group_id] || 0) + 1;
+      return m;
+    }, {});
+    return arr.map((e) => (
+      e.superset_group_id && counts[e.superset_group_id] < 2
+        ? { ...e, superset_group_id: null }
+        : e
+    ));
+  };
+
   const supersetWithNext = (exIdx) => {
     setExercises((arr) => {
       if (exIdx >= arr.length - 1) return arr;
@@ -527,7 +542,11 @@ export default function WorkoutSession() {
     setPicker(null);
     const target = exercises.find((e) => e.uid === replaceUid);
     const built = await buildExercise(picked, target ? target.sets.length : 1, replaceUid);
-    setExercises((arr) => arr.map((e) => (e.uid === replaceUid ? built : e)));
+    // Swapping one lift for another INSIDE a superset should keep the pairing —
+    // buildExercise starts every exercise at null, which used to drop the
+    // replacement out of the group and strand its partner alone in it.
+    built.superset_group_id = target?.superset_group_id ?? null;
+    setExercises((arr) => pruneLoneSupersets(arr.map((e) => (e.uid === replaceUid ? built : e))));
     toast({ title: "Exercise replaced", description: picked.name });
   };
 
@@ -541,7 +560,7 @@ export default function WorkoutSession() {
   const removeExercise = (uid) => {
     const ex = exercises.find((e) => e.uid === uid);
     if (ex && !window.confirm(`Remove ${ex.name} from this workout?`)) return;
-    setExercises((arr) => arr.filter((e) => e.uid !== uid));
+    setExercises((arr) => pruneLoneSupersets(arr.filter((e) => e.uid !== uid)));
   };
 
   const moveExercise = (uid, dir) =>

@@ -1681,6 +1681,7 @@ async def push_dispatch(request: Request):
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     sent = 0
+    dropped = 0
     async for u in db.users.find({"workout_settings.train_reminder_enabled": True}):
         st = u.get("workout_settings") or {}
         when = st.get("train_reminder_time") or ""
@@ -1712,8 +1713,16 @@ async def push_dispatch(request: Request):
             except WebPushException:
                 # 404/410 = the browser dropped the subscription; stop retrying it.
                 await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+                dropped += 1
+            except Exception:
+                # A corrupt stored key raises ValueError deep in the crypto layer.
+                # This loop serves EVERY user, so one bad row must not abort the run
+                # and cost everyone else their reminder — drop it and keep going.
+                logger.warning("push: dropping unusable subscription %s", sub.get("endpoint", "")[:60])
+                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+                dropped += 1
         await db.users.update_one({"_id": u["_id"]}, {"$set": {"workout_settings.last_push_date": today}})
-    return {"ok": True, "sent": sent}
+    return {"ok": True, "sent": sent, "dropped": dropped}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

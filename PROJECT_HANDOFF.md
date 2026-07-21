@@ -106,6 +106,26 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 5 (2026-07-21) — every remaining gap closed. 2 more real bugs found + fixed. See `FEATURES.md` §19.**
+- **Multi-user isolation: 8/8, no leaks.** Registered a real second user. B can't see A's
+  workouts or routines, A **can't delete B's routine** (404), B inherits no PRs, B is 403'd from
+  admin, health tokens are per-user, and A's token can't write into B's data.
+- **Push tested with REAL VAPID keys — and it caught a bug.** The dispatch handler only caught
+  `WebPushException`; a corrupt stored `p256dh` raises `ValueError` in the crypto layer instead,
+  which **500'd the whole dispatch run**. That endpoint serves EVERY user, so one bad
+  subscription row would have cost everyone their reminder. Now bad subs are logged, dropped and
+  the run continues (`{sent, dropped}`). Verified: dropped=1, run OK, re-dispatch sent 0.
+- **Superset orphaning — found and fixed.** Superset Bench+Row then **replace** Bench: the
+  replacement came back with `superset_group_id: null` (buildExercise starts at null) while Row
+  kept the group id — Row was left **alone in a superset of one** and saved with a meaningless
+  group id. Fix: the replacement now **inherits** the group, plus a new `pruneLoneSupersets()`
+  clears any group with <2 members, wired into both replace and remove. Verified both ways.
+- **Add-exercise mid-session** works — picker opens, search filters, selection adds.
+- **47 tests pass · `CI=true npx craco build` clean · DB restored** (13 workouts, Bench PR 99 kg,
+  5 users, zero ZZ leftovers, test user purged).
+- **Genuinely remaining:** real push delivery to a device (needs keys deployed + a real
+  subscription), interval/EMOM timer, share-workout image. Prod never touched.
+
 **SESSION 4 (2026-07-21) — live workout session fully clicked through + the port question settled.**
 - **Remaining click-gaps are now only: supersets, Add-Exercise mid-session, real push delivery,
   and multi-user isolation.** Everything else in the app has been driven by hand.

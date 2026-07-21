@@ -415,12 +415,54 @@ no network request in session 2. **Real browsers fire `animationend` and unmount
 but if a stuck-overlay report ever comes in from a real device, this is the first thing to check.
 Workaround while testing: reload the page, or remove `[data-state=closed]` overlays.
 
-## 19. Still not covered
+## 19. The last gaps closed (2026-07-21, session 5)
 
-- **Supersets** and **Add Exercise mid-session** were not exercised — the rest of the live
-  session was (§18), but these two paths remain click-untested.
-- **Push was not verified delivering an actual notification**, because that needs the VAPID
-  keys and scheduler in §16 ⑧. The plumbing is tested; live delivery is not.
+### Multi-user isolation — 8/8, no leaks
+Registered a real second user and checked separation from both sides:
+
+| Check | Result |
+|---|---|
+| B sees A's workouts | **No** — A=13, B=0 |
+| A sees B's routine | **No** |
+| A deletes B's routine by id | **Blocked (404)** — B still has it |
+| B inherits A's PRs | **No** — B records = 0 |
+| B reaches `/admin/users` | **Blocked (403)** |
+| Health tokens | **Per-user**, not shared |
+| A's health token writes into B | **No** — B days = 0 |
+
+### Push dispatch with real VAPID keys — and a bug it caught
+Generated a real VAPID keypair, ran the backend with it, and drove `/push/dispatch`.
+`config` flipped to `configured: true`, subscribe/unsubscribe round-tripped, and dispatch
+rejected both a wrong secret and a missing one (401).
+
+**Bug found:** the handler only caught `WebPushException`. A subscription whose stored
+`p256dh` key is corrupt raises `ValueError` deep in the crypto layer instead — which **500'd
+the entire dispatch run**. Since that one endpoint serves *every* user, a single bad row would
+have cost everybody their reminder. Now unusable subscriptions are logged, dropped, and the
+run continues; the response reports `dropped` alongside `sent`. Re-verified: `dropped: 1`,
+run completed, second dispatch sent 0 (pruned + the per-day guard holding).
+
+### Superset replace/remove orphaning — found and fixed
+Deliberate test: superset Bench+Row, then **replace** Bench.
+
+- **Before:** the replacement came back with `superset_group_id: null` (because `buildExercise`
+  starts every exercise at null) while Row kept the group id — leaving Row **alone in a
+  superset of one**, rendered as a superset and saved with a meaningless group id.
+- **After:** the replacement **inherits** the group (swapping a lift inside a superset should
+  keep the pairing), and a new `pruneLoneSupersets()` helper clears any group left with fewer
+  than two members. Wired into both replace and remove.
+- Verified live: replace → both exercises share `ss-lcqczb`, group size 2, **zero orphans**;
+  remove a member → the survivor's `superset_group_id` is `null`.
+
+### Add-exercise mid-session
+The picker opens from the session, search filters correctly (typing "Lateral Raise" narrowed
+to matching lifts), and selection adds to the session. Multi-select mode is active for add and
+single-tap for replace, as designed.
+
+## 20. Still not covered
+
+- **Push has not delivered to a real browser endpoint** — the dispatch path, auth, pruning and
+  idempotency are all tested, but an actual notification arriving on a device needs the keys
+  deployed and a real subscription.
 - **Prod was never touched** — everything ran against local Mongo.
-- **Multi-user / RLS-style isolation** was only spot-checked (401 on no-auth, 403 on admin
-  routes). No test logs in as a second user to confirm data separation.
+- **Interval/EMOM timer** and **share-workout image** were not click-tested.
