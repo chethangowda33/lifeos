@@ -106,7 +106,11 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
-**SESSION 4 (2026-07-21) — live workout session clicked through + the port question settled.**
+**SESSION 4 (2026-07-21) — live workout session fully clicked through + the port question settled.**
+- **Remaining click-gaps are now only: supersets, Add-Exercise mid-session, real push delivery,
+  and multi-user isolation.** Everything else in the app has been driven by hand.
+- **47 tests pass · `CI=true npx craco build` clean · DB restored to the 13-workout baseline
+  (Bench PR back to 99 kg, profile weight 75, zero ZZ leftovers).**
 - **The `$PORT` question — RESOLVED, doc fixed.** The uncommitted `DEPLOYMENT.md` edit that changed
   the Render start command to `--port 8001` was **wrong**. Evidence: `render.yaml` (the blueprint
   Render actually deploys from) uses `--port $PORT`, and prod
@@ -129,14 +133,24 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
   wait on never fires — the invisible overlay then swallows clicks. This is what made 3 clicks fire
   no network request in session 2. Real browsers unmount normally. If a stuck-overlay report ever
   arrives from a real device, check this first.
-- **NOT finished:** clicking "Finish" to save the session and verifying the written document was
-  blocked — Docker Desktop failed to boot its WSL VM after the machine restart, so local Mongo
-  never came up. The save path itself is covered by the earlier API audit (POST /workouts with
-  RPE + set types, 81/81 assertions) and by the shared `payload.js`, but the **UI finish → save →
-  PR-celebration flow remains unverified by clicking.** Retry when Docker is healthy.
-  - Docker recovery that worked once: `wsl --shutdown`, kill Docker Desktop, relaunch it, then
-    `docker start lifeos-mongo`. Watch for `vmmemWSL` in the process list — if it is absent, the
-    Linux VM has not actually booted no matter what `docker ps` says.
+- **Finish → save → PR: DONE and verified.** (Docker died mid-session and blocked this for a
+  while; after it recovered the flow was completed.) Logged Bench 100×5 @RPE 8, Row 60×10 @RPE 7,
+  Curl 20×12 @RPE 7 through the UI → header read **1340 kg / 3 sets** (exact hand-computed total)
+  → Finish → Save dialog → Save Workout. In MongoDB: volume **1340.0 kg**, 8 sets / 3 completed,
+  122 s, title + description persisted, **RPE round-tripped** (8/7/7), **e1RM per set**
+  (116.7/80.0/28.0), and the **PR moved 99 → 100 kg** with progression following.
+  **Then deleting it retracted the PR back to 99** — proving the §14 rollback fix works on a
+  genuinely UI-created workout, not just API-constructed test data.
+- **Docker recovery (it WILL happen again):** `wsl --shutdown`, kill every `*ocker*` process
+  (stale hung `docker` CLI processes block a clean relaunch), then relaunch Docker Desktop.
+  **Watch for `vmmemWSL` in the process list — if it is absent the Linux VM has not booted no
+  matter what `docker ps` says.** Its failure signature in
+  `%LOCALAPPDATA%\Docker\log\host\com.docker.backend.exe.log` is IPC `/ping` "context deadline
+  exceeded" → `stopping local engine linux/wsl` → an error dialog it quits on.
+- **Beware exit codes from polling scripts.** Four background waiters reported
+  "completed (exit 0)" while their output actually said `TIMED OUT` / `ENGINE NEVER CAME UP` /
+  `mongo not responding` — a trailing bare `echo` exits 0 regardless. **Read the output file,
+  never trust the summary line.** End such scripts with `exit 1` on the failure path.
 
 **SESSION 3 (2026-07-21) — the two big-ticket items done. See `FEATURES.md` §17.**
 - **NEXT UP is no longer a dumb rotation tracker.** `suggestedDayIndex(days, recoveryByMuscle)`

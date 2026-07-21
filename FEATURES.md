@@ -388,6 +388,25 @@ real browser from a 3-exercise routine (Bench / Row / Curl).
 The draft/resume path — flagged in the handoff as "the fragile part", and the reason session
 `mode="edit"` was never built — **survived a full page reload with zero data loss**.
 
+### Finish → save → PR, verified end to end
+Logged three sets through the UI (Bench 100×5 @RPE 8, Row 60×10 @RPE 7, Curl 20×12 @RPE 7),
+watched the header read **1340 kg / 3 sets** (the exact hand-computed total), clicked **Finish**,
+filled the Save dialog, and clicked **Save Workout**. Verified in MongoDB:
+
+| Check | Result |
+|---|---|
+| Workout written | `ZZLIVE Finish Test`, count 13 → 14 |
+| Volume | **1340.0 kg** — matches the UI and the hand calculation |
+| Sets | 8 logged / 3 completed, duration 122 s |
+| Title + description | Both persisted from the dialog |
+| RPE | Round-tripped per set — 8 / 7 / 7 |
+| e1RM | Computed per set at write time — 116.7 / 80.0 / 28.0 |
+| **PR awarded** | Bench **99 → 100 kg**, e1RM 116.7, progression `last_weight` updated |
+| **PR retracted on delete** | Deleting it put the PR **back to 99 kg** and progression back to 99 |
+
+That last row matters: it proves the §14 rollback fix works on a **genuinely UI-created** workout,
+not only on API-constructed test data.
+
 ### Environment artifact worth knowing (not a product bug)
 In headless Chrome, Radix dialogs/menus stay mounted at `data-state="closed"` with
 `pointer-events: auto` because the CSS `animationend` Radix waits on never fires. The stuck
@@ -398,9 +417,10 @@ Workaround while testing: reload the page, or remove `[data-state=closed]` overl
 
 ## 19. Still not covered
 
-- **Deep workout-session UI** (live logging, supersets, plate calculator, rest timer) was not
-  clicked through — it needs a started session and is the most stateful screen in the app.
-  Its endpoints are all verified; the interaction is not. This is what real gym use will test.
-- **Prod was never touched** — everything ran against local Mongo.
+- **Supersets** and **Add Exercise mid-session** were not exercised — the rest of the live
+  session was (§18), but these two paths remain click-untested.
 - **Push was not verified delivering an actual notification**, because that needs the VAPID
-  keys and scheduler above. The plumbing is tested; the live delivery is not.
+  keys and scheduler in §16 ⑧. The plumbing is tested; live delivery is not.
+- **Prod was never touched** — everything ran against local Mongo.
+- **Multi-user / RLS-style isolation** was only spot-checked (401 on no-auth, 403 on admin
+  routes). No test logs in as a second user to confirm data separation.
