@@ -1635,6 +1635,11 @@ class PushSubscriptionIn(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+# How long after the set time a reminder may still fire. Matches the frontend's
+# GRACE_MINUTES so the in-app and background reminders behave identically.
+PUSH_GRACE_MINUTES = 120
+
+
 def push_configured() -> bool:
     return bool(os.environ.get("VAPID_PRIVATE_KEY") and os.environ.get("VAPID_PUBLIC_KEY"))
 
@@ -1688,7 +1693,15 @@ async def push_dispatch(request: Request):
         # Reminder times are the user's local wall clock; offset is stored at subscribe time.
         offset_min = int(st.get("tz_offset_minutes") or 0)
         local_now = now + timedelta(minutes=offset_min)
-        if not when or local_now.strftime("%H:%M") < when:
+        try:
+            hh, mm = (int(x) for x in when.split(":"))
+        except (ValueError, AttributeError):
+            continue
+        # Fire only in a window after the set time. If the cron was down, or the user
+        # enabled the reminder late in the day, a stale "time to train" hours after the
+        # fact is worse than none — skip and catch them tomorrow.
+        late_min = (local_now.hour * 60 + local_now.minute) - (hh * 60 + mm)
+        if late_min < 0 or late_min > PUSH_GRACE_MINUTES:
             continue
         if st.get("last_push_date") == today:
             continue  # already reminded today
