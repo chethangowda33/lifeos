@@ -100,7 +100,7 @@ Verify: in Atlas click **Browse Collections** — you should see the `lifeos` da
    - **Root Directory:** `backend`
    - **Runtime:** Python 3
    - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `uvicorn server:app --host 0.0.0.0 --port $PORT`
+   - **Start Command:** `uvicorn server:app --host 0.0.0.0 --port $PORT` (Render sets `$PORT` itself — never hardcode a number here or the health check hits a dead port and the deploy fails)
    - **Instance Type:** Free
 3. Scroll to **Environment Variables** → add these (copy API keys from your local `backend/.env`):
 

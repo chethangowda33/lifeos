@@ -6,7 +6,9 @@
 >
 > **Result: 32/32 read endpoints and 81/81 write assertions pass.** 3 real defects found — all 3 fixed (§14).
 >
-> Scope note: this is a **backend + data-layer** audit. Per-button UI clicking was *not* performed (see §15).
+> **Sessions 2–4 extended this**: the UI was driven in a real browser (§15), five queued improvements
+> plus a timezone bug shipped (§16), NEXT UP intelligence and body-weight tracking landed (§17), and
+> the live workout session — the most stateful screen in the app — was clicked through end to end (§18).
 
 ---
 
@@ -14,7 +16,7 @@
 
 **What it is.** Email + password, JWT in an httpOnly cookie, invite-gated when `INVITE_CODE` is set. Roles: `admin` | `user`.
 
-**How it works.** `POST /auth/login` returns a cookie *and* a bearer token. `get_current_user` reads the **cookie first**, falling back to the `Authorization` header only when no cookie exists.
+**How it works.** `POST /auth/login` returns a cookie *and* a bearer token. `get_current_user` tries **every credential presented** (cookie and `Authorization` header) and accepts the first that validates — see §16 ⑦ for why reading only the cookie was a bug.
 
 **User logs / clicks.** Login and Register pages — the only two `onSubmit` forms in the app. Register takes email, password, name, invite code.
 
@@ -23,7 +25,7 @@
 **Verified.** Login OK · unauthenticated request → 401 · profile round-trips name + weight · role gating on `/admin/*`.
 
 **Improve.**
-- *(carried from handoff)* A stale cookie shadows a valid bearer token → 401. Bit local cross-origin testing; harmless in prod. Fix: try Bearer when the cookie fails to validate.
+- ~~A stale cookie shadows a valid bearer token → 401.~~ **Fixed** in session 2 (§16 ⑦).
 - No password reset, no email verification, no session revocation.
 
 ---
@@ -361,7 +363,40 @@ recomputed 23.7 → 23.5, and the profile weight followed. 4 new backend tests (
 
 **Backend suite: 47 passed.** `CI=true npx craco build` compiles clean.
 
-## 18. Still not covered
+## 18. Live workout session — clicked through (2026-07-21, session 4)
+
+The most stateful screen in the app, and the one previously listed as untested. Driven in a
+real browser from a 3-exercise routine (Bench / Row / Curl).
+
+| Control | Result |
+|---|---|
+| Start from routine | Session opened, duration timer ticking |
+| "Previous" column | Showed real history — `99×5`, `50×10` |
+| Progression hint | "Suggested: 99 kg" from `/progression` |
+| **Apply** button | Filled **all three** bench sets with 99 kg in one tap |
+| kg / reps / RPE entry | Accepted 99 / 8 / 8 |
+| Complete set (✓) | **Volume → 792 kg** (99×8 exactly), SETS → 1 |
+| Rest timer | **Auto-started** on set completion, counted down from 90s |
+| Rest timer ±15 / skip | All three respond |
+| Set-type menu | Working / Warm-up / Drop set / Failure / AMRAP all listed |
+| Set → Warm-up | Row relabelled **W**, and correctly **excluded from volume** |
+| **Plate calculator** | For 99 kg / 20 kg bar: `1×25 + 1×10 + 1×2.5 + 1×1.25` per side, and it warned **"0.75 kg per side can't be loaded with your plates — closest load: 97.5 kg"** |
+| Draft autosave | `lifeos:session:v1:routine:<id>` held every set with type/kg/reps/rpe/completed |
+| **Reload mid-session** | Prompt: *"Resume unfinished workout? … 1 sets logged · 3 exercises"* |
+| **Resume** | Restored volume 792 kg, SETS 1, all inputs **and** the warm-up type |
+
+The draft/resume path — flagged in the handoff as "the fragile part", and the reason session
+`mode="edit"` was never built — **survived a full page reload with zero data loss**.
+
+### Environment artifact worth knowing (not a product bug)
+In headless Chrome, Radix dialogs/menus stay mounted at `data-state="closed"` with
+`pointer-events: auto` because the CSS `animationend` Radix waits on never fires. The stuck
+overlay silently swallows subsequent clicks. This is what made three habit-counter clicks fire
+no network request in session 2. **Real browsers fire `animationend` and unmount normally** —
+but if a stuck-overlay report ever comes in from a real device, this is the first thing to check.
+Workaround while testing: reload the page, or remove `[data-state=closed]` overlays.
+
+## 19. Still not covered
 
 - **Deep workout-session UI** (live logging, supersets, plate calculator, rest timer) was not
   clicked through — it needs a started session and is the most stateful screen in the app.

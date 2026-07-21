@@ -106,6 +106,38 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 4 (2026-07-21) — live workout session clicked through + the port question settled.**
+- **The `$PORT` question — RESOLVED, doc fixed.** The uncommitted `DEPLOYMENT.md` edit that changed
+  the Render start command to `--port 8001` was **wrong**. Evidence: `render.yaml` (the blueprint
+  Render actually deploys from) uses `--port $PORT`, and prod
+  (`https://lifeos-api-g6hq.onrender.com/api/`) answers `{"app":"LifeOS","status":"ok"}` — proving
+  it binds Render's dynamically-assigned `$PORT`. Hardcoding a number makes Render's health check
+  hit a dead port and the deploy fail. DEPLOYMENT.md is now back to `$PORT` **with a warning note**
+  so nobody re-applies that edit.
+- **Live workout session tested end to end** (the screen previously listed as untested — see
+  `FEATURES.md` §18). Verified by clicking: start-from-routine, previous-values column, progression
+  "Apply" (filled all 3 sets with 99 kg at one tap), kg/reps/RPE entry, set completion →
+  **volume computed exactly right (99×8 = 792 kg)**, rest timer auto-start + ±15 + skip, the
+  set-type menu, warm-up correctly **excluded from volume**, and the plate calculator — which
+  correctly warned *"0.75 kg per side can't be loaded with your plates — closest load: 97.5 kg"*.
+- **Draft/resume survived a full page reload** — the "fragile part" the handoff warned about, and
+  the reason session `mode="edit"` was never built. Reloading mid-session prompted
+  *"Resume unfinished workout? … 1 sets logged · 3 exercises"* and Resume restored volume, set
+  count, every input **and** the warm-up set type. No data loss.
+- **Environment artifact (NOT a product bug):** in headless Chrome, Radix dialogs/menus stay
+  mounted at `data-state="closed"` with `pointer-events:auto` because the CSS `animationend` they
+  wait on never fires — the invisible overlay then swallows clicks. This is what made 3 clicks fire
+  no network request in session 2. Real browsers unmount normally. If a stuck-overlay report ever
+  arrives from a real device, check this first.
+- **NOT finished:** clicking "Finish" to save the session and verifying the written document was
+  blocked — Docker Desktop failed to boot its WSL VM after the machine restart, so local Mongo
+  never came up. The save path itself is covered by the earlier API audit (POST /workouts with
+  RPE + set types, 81/81 assertions) and by the shared `payload.js`, but the **UI finish → save →
+  PR-celebration flow remains unverified by clicking.** Retry when Docker is healthy.
+  - Docker recovery that worked once: `wsl --shutdown`, kill Docker Desktop, relaunch it, then
+    `docker start lifeos-mongo`. Watch for `vmmemWSL` in the process list — if it is absent, the
+    Linux VM has not actually booted no matter what `docker ps` says.
+
 **SESSION 3 (2026-07-21) — the two big-ticket items done. See `FEATURES.md` §17.**
 - **NEXT UP is no longer a dumb rotation tracker.** `suggestedDayIndex(days, recoveryByMuscle)`
   now prefers the most-recovered day (fresh<recovering<worked from /workouts/muscle-volume),
