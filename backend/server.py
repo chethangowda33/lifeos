@@ -1343,10 +1343,8 @@ async def regenerate_health_token(user=Depends(get_current_user)):
     return {"token": token}
 
 
-@api.post("/health/ingest")
-async def health_ingest(payload: HealthIngestIn, request: Request):
-    """Token-authenticated ingest — called by a phone automation, NOT the browser.
-    Auth via `X-Health-Token` header or `Authorization: Bearer <token>`."""
+async def _user_from_health_token(request: Request) -> Dict[str, Any]:
+    """Token auth for phone automations, which cannot hold a login session."""
     token = request.headers.get("X-Health-Token", "")
     if not token:
         auth = request.headers.get("Authorization", "")
@@ -1357,7 +1355,126 @@ async def health_ingest(payload: HealthIngestIn, request: Request):
     user = await db.users.find_one({"health_token": token})
     if not user:
         raise HTTPException(401, "Invalid health sync token")
+    return user
 
+
+# Matches a bare number, optionally decimal/negative. Used only on the text
+# fallback below, where Shortcuts has already flattened samples to a string.
+_NUM_RE = re.compile(r"-?\d+(?:\.\d+)?")
+
+
+def _sum_health_payload(raw: str) -> Dict[str, Any]:
+    """Sum whatever a Shortcuts 'Health Samples' variable serialised into.
+
+    Shortcuts renders that variable differently per iOS version — a JSON array,
+    an array of objects, or newline-separated text like "412 count". Rather than
+    betting on one shape, parse JSON when it is JSON and fall back to pulling the
+    numbers out of the text, reporting which path was taken so a wrong guess is
+    visible instead of silently producing a wrong total."""
+    raw = (raw or "").strip()
+    if not raw:
+        return {"total": None, "count": 0, "parsed_as": "empty"}
+
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        data = None
+
+    if data is not None:
+        if isinstance(data, (int, float)):
+            return {"total": float(data), "count": 1, "parsed_as": "json-number"}
+        if isinstance(data, list):
+            vals: List[float] = []
+            for item in data:
+                if isinstance(item, (int, float)):
+                    vals.append(float(item))
+                elif isinstance(item, dict):
+                    # sample objects vary: {"value": 412} / {"quantity": 412} / …
+                    for k in ("value", "quantity", "amount", "count"):
+                        if isinstance(item.get(k), (int, float)):
+                            vals.append(float(item[k]))
+                            break
+                elif isinstance(item, str):
+                    m = _NUM_RE.search(item)
+                    if m:
+                        vals.append(float(m.group()))
+            if vals:
+                return {"total": sum(vals), "count": len(vals), "parsed_as": "json-list"}
+        if isinstance(data, dict):
+            for k in ("value", "quantity", "amount", "count", "total"):
+                if isinstance(data.get(k), (int, float)):
+                    return {"total": float(data[k]), "count": 1, "parsed_as": "json-object"}
+
+    # Text fallback: one sample per line, take the FIRST number on each line so a
+    # trailing timestamp ("412 count, 21 Jul 2026") cannot inflate the total.
+    vals = []
+    for line in raw.splitlines():
+        m = _NUM_RE.search(line)
+        if m:
+            vals.append(float(m.group()))
+    if vals:
+        return {"total": sum(vals), "count": len(vals), "parsed_as": "text-lines"}
+    return {"total": None, "count": 0, "parsed_as": "unrecognised"}
+
+
+@api.post("/health/ingest/raw")
+async def health_ingest_raw(request: Request, metric: str = "steps", date: Optional[str] = None):
+    """Sum raw Health samples server-side.
+
+    The two-step phone recipe (Find Health Samples → Calculate Statistics) fails
+    quietly on some devices: Calculate Statistics yields nothing and the JSON field
+    is sent as null. This endpoint takes the Find Health Samples output directly so
+    the automation is one action shorter and the fragile step disappears.
+
+    Always echoes `received_preview` so a serialisation this parser does not know
+    about can be identified from the response instead of guessed at."""
+    user = await _user_from_health_token(request)
+    if metric not in HEALTH_DAILY_FIELDS and metric != "sleep_hours":
+        raise HTTPException(400, f"Unknown metric '{metric}'")
+
+    raw = (await request.body()).decode("utf-8", errors="replace")
+    parsed = _sum_health_payload(raw)
+    uid = str(user["_id"])
+    d = date or _today_str()
+
+    stored = False
+    if parsed["total"] is not None:
+        value = round(parsed["total"], 2)
+        if metric == "sleep_hours":
+            await db.sleep_logs.update_one(
+                {"user_id": uid, "date": d},
+                {"$set": {"user_id": uid, "date": d, "hours": value, "source": "sync"}},
+                upsert=True,
+            )
+        else:
+            await db.health_daily.update_one(
+                {"user_id": uid, "date": d},
+                {"$set": {metric: value, "synced_at": datetime.now(timezone.utc).isoformat()}},
+                upsert=True,
+            )
+        stored = True
+
+    return {
+        "ok": True, "date": d, "metric": metric, "stored": stored,
+        "total": parsed["total"], "samples": parsed["count"],
+        "parsed_as": parsed["parsed_as"],
+        "received_preview": raw[:300],
+    }
+
+
+@api.delete("/health/daily/{date}")
+async def delete_health_day(date: str, user=Depends(get_current_user)):
+    """Remove a synced day. A bad automation run could previously write wrong
+    numbers with no way to clear them."""
+    res = await db.health_daily.delete_one({"user_id": str(user["_id"]), "date": date})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+@api.post("/health/ingest")
+async def health_ingest(payload: HealthIngestIn, request: Request):
+    """Token-authenticated ingest — called by a phone automation, NOT the browser.
+    Auth via `X-Health-Token` header or `Authorization: Bearer <token>`."""
+    user = await _user_from_health_token(request)
     uid = str(user["_id"])
     d = payload.date or _today_str()
 

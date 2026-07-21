@@ -23,6 +23,47 @@ to Apple Health / Health Connect.
 
 ---
 
+## ⭐ Easiest path — let the server do the maths (2 actions)
+
+The classic recipe below uses **Find Health Samples → Calculate Statistics → POST**.
+On some devices Calculate Statistics silently produces nothing and the JSON field gets
+sent as `null` — the request succeeds but `stored` comes back empty. If that happens to
+you, use this shorter version instead: it drops the Calculate Statistics step entirely
+and lets the backend sum the samples.
+
+**Shortcuts → Automation → Time of Day → 11:30 PM, Daily, Run Immediately**, then:
+
+| # | Action | Settings |
+|---|---|---|
+| 1 | **Find Health Samples** | Type `Steps`, Start Date `is today` |
+| 2 | **Get Contents of URL** | see below |
+
+**Get Contents of URL:**
+- URL: `https://lifeos-api-g6hq.onrender.com/api/health/ingest/raw?metric=steps`
+- Method: **POST**
+- Headers: `X-Health-Token` → your key
+- Request Body: **File** (not JSON) → choose the **Health Samples** variable from step 1
+
+The response tells you exactly what happened:
+
+```json
+{"ok": true, "metric": "steps", "stored": true, "total": 412,
+ "samples": 37, "parsed_as": "text-lines", "received_preview": "..."}
+```
+
+- `stored: true` → it worked
+- `stored: false` → `received_preview` shows precisely what your phone sent, so the
+  problem is visible rather than guessed at. Send that preview along if you need help.
+
+Change `?metric=steps` to any field in the table below — `resting_hr`, `active_energy`,
+`sleep_hours`, etc. Add one more **Find Health Samples → Get Contents of URL** pair per
+metric you want.
+
+**Deleting a bad sync:** `DELETE /api/health/daily/{YYYY-MM-DD}` (needs a normal login,
+not the health token) removes a day that was written with wrong numbers.
+
+---
+
 ## iPhone — Apple Shortcuts (the supported path)
 
 ### Step 1 — let your watch write to Apple Health
@@ -133,6 +174,18 @@ Same endpoint, same header, same JSON. Use **Tasker** (paid) or **Macrodroid** (
 |---|---|
 | `401` | Wrong/stale token, or a space when pasting. Re-copy from Connections. |
 | Request hangs ~40s then works | Render free tier waking up. Expected. |
-| `"stored": []` | Body sent no recognised fields — check the JSON keys match the table. |
+| `"stored": []` **with `ok: true`** | The token is fine — the value arrived as `null`. Shortcuts does this when a **Number**-typed JSON field holds a variable it can't resolve, or when Calculate Statistics returned nothing. **Use the 2-action recipe at the top of this file** — it removes both causes. |
+| `"stored": []` **and you sent JSON** | Field name doesn't match the table exactly (it's `steps`, not `Steps`). |
 | Data on the wrong day | Automation ran after local midnight; send `date` explicitly. |
 | Nothing in Apple Health to read | The watch's own app isn't writing to Health yet (Step 1). |
+| Health reads return nothing despite data existing | Shortcuts lacks Health permission. **Settings → Health → Data Access & Devices → Shortcuts** → enable the metrics. iOS fails this *silently* — it returns an empty set, not an error. |
+
+### Verified payload behaviour
+Tested directly against prod, so these are facts not guesses:
+
+| Sent | Result |
+|---|---|
+| `{"steps": 437}` | stored ✓ |
+| `{"steps": "437"}` | stored ✓ (strings are coerced) |
+| `{"steps": null}` | **`stored: []`** — the silent-failure case |
+| `{"steps": ""}` | `422` validation error |
