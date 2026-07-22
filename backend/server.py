@@ -2336,11 +2336,23 @@ async def life_score(user=Depends(get_current_user)):
         "detail": f"{round(steps):,} of {DAILY_STEP_TARGET:,} steps" if steps else "No watch data",
     })
 
+    # A stale category keeps its computed number internally but must not show one —
+    # "89" next to "not logged" reads as a bug.
+    for c in cats:
+        if not c["available"]:
+            c["score"] = 0
+
     scored = [c["score"] for c in cats if c["available"]]
+    # One category is not a life score, it is that category wearing a different
+    # label — and presenting it as an overall (often a 0 early in the week) is
+    # both misleading and discouraging. Withhold the number until there are at
+    # least two signals; the breakdown still shows what to start tracking.
+    overall = round(sum(scored) / len(scored)) if len(scored) >= 2 else None
     return {
         "date": today,
-        "overall": round(sum(scored) / len(scored)) if scored else None,
+        "overall": overall,
         "tracked": len(scored),
+        "needs_more_tracking": overall is None,
         "categories": cats,
     }
 

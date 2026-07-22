@@ -292,12 +292,14 @@ function WeeklyRecap() {
    hidden — so the card reads as an invitation to start logging sleep or meals,
    not as a silent omission. They're excluded from the overall either way. */
 function LifeScoreCard({ score }) {
-  if (!score || score.overall == null) return null;
+  if (!score) return null;
 
   const tone = (n) =>
     n >= 80 ? "text-emerald-400" : n >= 50 ? "text-amber-400" : "text-maroon";
   const R = 30, C = 2 * Math.PI * R;
+  const pending = score.overall == null;
   const pct = Math.min(1, (score.overall || 0) / 100);
+  const untracked = (score.categories || []).filter((c) => !c.available).map((c) => c.label);
 
   return (
     <Card className="p-5">
@@ -312,8 +314,8 @@ function LifeScoreCard({ score }) {
             />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className={`text-2xl font-semibold leading-none ${tone(score.overall)}`}>
-              {score.overall}
+            <span className={`text-2xl font-semibold leading-none ${pending ? "text-muted-foreground" : tone(score.overall)}`}>
+              {pending ? "—" : score.overall}
             </span>
             <span className="text-[9px] text-muted-foreground mt-0.5">today</span>
           </div>
@@ -327,6 +329,12 @@ function LifeScoreCard({ score }) {
               · {score.tracked} {score.tracked === 1 ? "area" : "areas"} tracked
             </span>
           </div>
+          {pending && (
+            <p className="text-xs text-muted-foreground mt-1">
+              Track one more area to unlock your score
+              {untracked.length ? ` — try ${untracked.slice(0, 2).join(" or ")}.` : "."}
+            </p>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
             {(score.categories || []).map((c) => (
               <div
