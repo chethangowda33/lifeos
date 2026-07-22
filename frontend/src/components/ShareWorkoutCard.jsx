@@ -11,6 +11,24 @@ function fmtDur(secs) {
   return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 }
 
+/* Resolve a CSS custom property to a literal colour.
+
+   The body-map SVGs below are serialised into a standalone data URL, and custom
+   properties do NOT resolve in that context — `hsl(var(--maroon))` survives as
+   literal text, the SVG fails to parse, and the Image built from it fires neither
+   load nor error. html-to-image then awaits it forever, so the button sticks on
+   "Creating image…" with no way back. Passing concrete colours avoids that. */
+function cssColor(varName, fallback) {
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(varName).trim();
+    return v ? `hsl(${v})` : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+const PNG_TIMEOUT_MS = 15000;
+
 /* Share button + hidden 380px summary card rendered to PNG via html-to-image. */
 export default function ShareWorkoutButton({ summary }) {
   const cardRef = useRef(null);
@@ -21,11 +39,22 @@ export default function ShareWorkoutButton({ summary }) {
     .filter((g) => MUSCLE_MAP[g])
     .map((g) => ({ name: g, muscles: MUSCLE_MAP[g], frequency: 2 }));
 
+  // Literal colours, not var() — see cssColor above.
+  const bodyColor = cssColor("--muted", "#e5e7eb");
+  const maroon = cssColor("--maroon", "#c0152a");
+  const highlightColors = [cssColor("--maroon-light", maroon), maroon];
+
   const share = async () => {
     setBusy(true);
     try {
-      // skipFonts: embedding the cross-origin Google Fonts stylesheet throws SecurityError and can hang
-      const dataUrl = await toPng(cardRef.current, { pixelRatio: 2, cacheBust: true, skipFonts: true });
+      // skipFonts: embedding the cross-origin Google Fonts stylesheet throws SecurityError and can hang.
+      // The timeout is the backstop: html-to-image can hang indefinitely on a resource that never
+      // settles, and a share button that never comes back is worse than one that reports failure.
+      const dataUrl = await Promise.race([
+        toPng(cardRef.current, { pixelRatio: 2, cacheBust: true, skipFonts: true }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Timed out building the image")), PNG_TIMEOUT_MS)),
+      ]);
       const blob = await (await fetch(dataUrl)).blob();
       const file = new File([blob], "lifeos-workout.png", { type: "image/png" });
       if (navigator.canShare?.({ files: [file] })) {
@@ -83,8 +112,8 @@ export default function ShareWorkoutButton({ summary }) {
           </div>
           {muscleData.length > 0 && (
             <div className="flex justify-center gap-2">
-              <Model type="anterior" data={muscleData} bodyColor="hsl(var(--muted))" highlightedColors={["hsl(var(--maroon) / 0.55)", "hsl(var(--maroon))"]} style={{ width: 110, padding: 0 }} />
-              <Model type="posterior" data={muscleData} bodyColor="hsl(var(--muted))" highlightedColors={["hsl(var(--maroon) / 0.55)", "hsl(var(--maroon))"]} style={{ width: 110, padding: 0 }} />
+              <Model type="anterior" data={muscleData} bodyColor={bodyColor} highlightedColors={highlightColors} style={{ width: 110, padding: 0 }} />
+              <Model type="posterior" data={muscleData} bodyColor={bodyColor} highlightedColors={highlightColors} style={{ width: 110, padding: 0 }} />
             </div>
           )}
           {summary.prs?.length > 0 && (
