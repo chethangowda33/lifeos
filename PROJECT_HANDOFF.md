@@ -106,6 +106,41 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 6 (2026-07-22) — push live on a real phone, share-button hang fixed, Life Score built.**
+- **Push notifications are LIVE and proven on the user's iPhone.** VAPID keys +
+  `PUSH_DISPATCH_SECRET` are set on Render; `/push/config` reports `configured: true`.
+  A real dispatch returned `sent: 1` and the phone buzzed with the app closed.
+  **Still missing: the cron.** Reminders only fire when something POSTs
+  `/api/push/dispatch` with header `X-Dispatch-Secret`. Set up cron-job.org (every 15 min)
+  or they never fire on their own.
+- **Train reminders were firing hours late** — a 2 PM reminder fired at 5:17 PM the moment
+  the app was opened, because both paths only checked "now >= set time" with a once-a-day
+  guard. Both now use a **120-minute grace window** (`GRACE_MINUTES` frontend,
+  `PUSH_GRACE_MINUTES` backend, kept equal). Verified at the boundary.
+- **Share button hung forever.** Tapping Share left it disabled on "Creating image…"
+  permanently — `toPng` neither resolved nor rejected, so `finally` never ran. Added a
+  15s timeout (verified live: fails at 15.2s with a toast, button recovers) and resolved
+  the body-map colours to literals since CSS vars don't survive SVG serialisation.
+  **The image still doesn't generate in headless Chrome** — root cause narrowed to the
+  `rbh` SVGs rendering at `width="100%"`, not confirmed. **Ask the user to tap Share on a
+  real device**; that settles whether it's a real-device bug or a headless artefact.
+- **Life Score shipped** — `GET /life-score` + dashboard ring. Fitness / Nutrition /
+  Habits / Sleep / Activity, each 0-100, averaged. **Design rule: only score what the user
+  actually tracks** — averaging zeros for unused modules would tell a dedicated lifter their
+  life is a 40. Sleep scores by *distance* from 7.5h so 9h ≈ 6h. Testing on real data caught
+  that a single tracked area produced a demoralising "0", so the overall is now **withheld
+  until 2+ areas** are tracked with a nudge instead.
+- **Weekly training goal is now a setting** (`weekly_workout_target`, default 4) instead of
+  two hardcoded 4s that had to stay in sync — a 6x/week lifter was capped at 67% Fitness.
+- **Health sync is BLOCKED on the phone, not the server.** Proven: pushing 450 steps through
+  with the user's own token stored fine. `Find Health Samples` returns empty on their device
+  despite Steps permission being on and Health showing 400+ steps. Added
+  `POST /health/ingest/raw?metric=steps` (sums samples server-side, 2-action recipe) and
+  `DELETE /health/daily/{date}`. Next diagnostic: **Quick Look after Find Health Samples**.
+- ⚠️ **The integration suite has NOT run since the Life Score work.** Docker refused to start
+  all evening (4 attempts). Every test fails on connection-refused without local Mongo.
+  **Run `pytest` first thing when Docker is back.** The last verified state was 47 passing.
+
 **SESSION 5 (2026-07-21) — every remaining gap closed. 2 more real bugs found + fixed. See `FEATURES.md` §19.**
 - **Multi-user isolation: 8/8, no leaks.** Registered a real second user. B can't see A's
   workouts or routines, A **can't delete B's routine** (404), B inherits no PRs, B is 403'd from
