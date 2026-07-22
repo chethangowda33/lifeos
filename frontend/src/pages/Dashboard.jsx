@@ -61,6 +61,7 @@ export default function Dashboard() {
   const [bmi, setBmi] = useState(null);
   const [recovery, setRecovery] = useState([]); // muscle recovery status
   const [health, setHealth] = useState(null); // today's watch-synced metrics
+  const [lifeScore, setLifeScore] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -68,13 +69,14 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m, mv, hd] = await Promise.all([
+        const [w, s, r, m, mv, hd, ls] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
           api.get("/body-metrics/latest").catch(() => ({ data: {} })),
           api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
           api.get("/health/daily").catch(() => ({ data: {} })),
+          api.get("/life-score").catch(() => ({ data: null })),
         ]);
         if (!alive) return;
         setWorkouts(w.data || []);
@@ -83,6 +85,7 @@ export default function Dashboard() {
         setBmi(m.data?.bmi?.value ?? null);
         setRecovery(mv.data || []);
         setHealth(hd.data?.today || null);
+        setLifeScore(ls.data || null);
       } finally {
         if (alive) setLoading(false);
       }
@@ -144,6 +147,9 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Life Score — how today looks across everything actually tracked */}
+      <LifeScoreCard score={lifeScore} />
 
       {/* Today band — weekly goal ring + streak + muscle recovery */}
       <TodayHero
@@ -276,6 +282,71 @@ function WeeklyRecap() {
       {loading && <p className="text-sm text-muted-foreground py-3 text-center animate-pulse">Coach is reviewing your week…</p>}
       {error && !loading && <p className="text-sm text-muted-foreground py-1">{error}</p>}
       {recap && !loading && <RecapText text={recap} />}
+    </Card>
+  );
+}
+
+/* Life Score: today across every category the user actually tracks.
+
+   Categories they don't use are shown greyed with "not tracked" rather than
+   hidden — so the card reads as an invitation to start logging sleep or meals,
+   not as a silent omission. They're excluded from the overall either way. */
+function LifeScoreCard({ score }) {
+  if (!score || score.overall == null) return null;
+
+  const tone = (n) =>
+    n >= 80 ? "text-emerald-400" : n >= 50 ? "text-amber-400" : "text-maroon";
+  const R = 30, C = 2 * Math.PI * R;
+  const pct = Math.min(1, (score.overall || 0) / 100);
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-5">
+        <div className="relative shrink-0">
+          <svg width="80" height="80" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r={R} fill="none" stroke="hsl(var(--muted))" strokeWidth="7" />
+            <circle
+              cx="40" cy="40" r={R} fill="none" stroke="hsl(var(--maroon))" strokeWidth="7"
+              strokeLinecap="round" strokeDasharray={C} strokeDashoffset={C * (1 - pct)}
+              transform="rotate(-90 40 40)" className="transition-all"
+            />
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <span className={`text-2xl font-semibold leading-none ${tone(score.overall)}`}>
+              {score.overall}
+            </span>
+            <span className="text-[9px] text-muted-foreground mt-0.5">today</span>
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-maroon" />
+            <span className="font-semibold">Life Score</span>
+            <span className="text-[11px] text-muted-foreground">
+              · {score.tracked} {score.tracked === 1 ? "area" : "areas"} tracked
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mt-3">
+            {(score.categories || []).map((c) => (
+              <div
+                key={c.key}
+                className={`rounded-lg border px-2.5 py-2 ${
+                  c.available ? "border-border bg-muted/30" : "border-dashed border-border/60 opacity-55"
+                }`}
+              >
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{c.label}</div>
+                <div className={`text-base font-semibold ${c.available ? tone(c.score) : "text-muted-foreground"}`}>
+                  {c.available ? c.score : "—"}
+                </div>
+                <div className="text-[10px] text-muted-foreground leading-tight mt-0.5 line-clamp-2">
+                  {c.available ? c.detail : "not tracked"}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </Card>
   );
 }

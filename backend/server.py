@@ -2225,6 +2225,126 @@ async def muscle_volume(user=Depends(get_current_user)):
     return out
 
 
+# ── LIFE SCORE ────────────────────────────────────────────────────────────────
+# Weekly training target. Mirrors the dashboard ring so the two never disagree.
+WEEKLY_WORKOUT_TARGET = 4
+IDEAL_SLEEP_HOURS = 7.5
+DAILY_STEP_TARGET = 8000
+
+
+def _pct(value: float, target: float) -> float:
+    """Progress toward a target as 0-100, never above 100."""
+    if not target:
+        return 0.0
+    return max(0.0, min(100.0, (value / target) * 100.0))
+
+
+@api.get("/life-score")
+async def life_score(user=Depends(get_current_user)):
+    """Daily 0-100 per life category, computed from actually-logged data.
+
+    Design rule: a category is only scored when the user genuinely tracks it.
+    Averaging in a zero for every module someone doesn't use would tell a
+    dedicated lifter who never logs meals that their life is a 40 — punishing
+    them for the app's breadth rather than reflecting their effort. Untracked
+    categories are returned with `available: false` and left out of the overall."""
+    uid = str(user["_id"])
+    now = datetime.now(timezone.utc)
+    today = now.date().isoformat()
+    cats: List[Dict[str, Any]] = []
+
+    # ── Fitness: sessions so far this week, Monday-based to match the ring ────
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    week_workouts = await db.workout_sessions.count_documents(
+        {"user_id": uid, "created_at": {"$gte": monday.isoformat()}}
+    )
+    ever = await db.workout_sessions.count_documents({"user_id": uid})
+    cats.append({
+        "key": "fitness", "label": "Fitness",
+        "score": round(_pct(week_workouts, WEEKLY_WORKOUT_TARGET)),
+        "available": ever > 0,
+        "detail": f"{week_workouts} of {WEEKLY_WORKOUT_TARGET} sessions this week",
+    })
+
+    # ── Nutrition: today's calories + protein against the user's own targets ──
+    entries = await db.intake_entries.find({"user_id": uid, "date": today}).to_list(200)
+    kcal = protein = 0.0
+    for e in entries:
+        qty = e.get("quantity") or 1
+        n = e.get("nutrients") or {}
+        kcal += (n.get("calories") or 0) * qty
+        protein += (n.get("protein_g") or n.get("protein") or 0) * qty
+    tdoc = await db.intake_targets.find_one({"user_id": uid}) or {}
+    tset = tdoc.get("targets") or {}
+    kcal_t = tset.get("calories") or 2000
+    prot_t = tset.get("protein_g") or 150
+    # Calories and protein weighted equally — hitting protein matters as much as
+    # total energy for anyone training.
+    cats.append({
+        "key": "nutrition", "label": "Nutrition",
+        "score": round((_pct(kcal, kcal_t) + _pct(protein, prot_t)) / 2),
+        "available": len(entries) > 0,
+        "detail": f"{round(kcal)} / {round(kcal_t)} kcal · {round(protein)} / {round(prot_t)}g protein",
+    })
+
+    # ── Habits: today's completions across active habits ──────────────────────
+    habits = await db.habits.find({"user_id": uid, "archived": {"$ne": True}}).to_list(200)
+    done = 0
+    if habits:
+        hlogs = await db.habit_logs.find(
+            {"user_id": uid, "habit_id": {"$in": [str(h["_id"]) for h in habits]}, "date": today}
+        ).to_list(500)
+        by_id = {l["habit_id"]: l for l in hlogs}
+        for h in habits:
+            l = by_id.get(str(h["_id"]))
+            if not l:
+                continue
+            if h.get("type") == "count":
+                if (l.get("value") or 0) >= (h.get("target") or 1):
+                    done += 1
+            elif l.get("completed"):
+                done += 1
+    cats.append({
+        "key": "habits", "label": "Habits",
+        "score": round(_pct(done, len(habits))) if habits else 0,
+        "available": len(habits) > 0,
+        "detail": f"{done} of {len(habits)} done today" if habits else "No habits yet",
+    })
+
+    # ── Sleep: most recent night within 2 days (last night may not be logged yet)
+    recent = await db.sleep_logs.find({"user_id": uid}).sort("date", -1).to_list(1)
+    night = recent[0] if recent else None
+    fresh = bool(night and night.get("date", "") >= (now.date() - timedelta(days=1)).isoformat())
+    hours = (night or {}).get("hours") or 0
+    # Oversleeping is not better than sleeping well, so score distance from ideal
+    # rather than raw hours — 9h and 6h are both off-target.
+    sleep_score = max(0.0, 100.0 - (abs(hours - IDEAL_SLEEP_HOURS) / IDEAL_SLEEP_HOURS) * 100.0) if hours else 0.0
+    cats.append({
+        "key": "sleep", "label": "Sleep",
+        "score": round(sleep_score),
+        "available": fresh,
+        "detail": f"{hours}h last night" if fresh else "Not logged",
+    })
+
+    # ── Activity: steps from whatever watch/phone syncs in ────────────────────
+    hd = await db.health_daily.find_one({"user_id": uid, "date": today})
+    steps = (hd or {}).get("steps") or 0
+    cats.append({
+        "key": "activity", "label": "Activity",
+        "score": round(_pct(steps, DAILY_STEP_TARGET)),
+        "available": bool(hd and steps),
+        "detail": f"{round(steps):,} of {DAILY_STEP_TARGET:,} steps" if steps else "No watch data",
+    })
+
+    scored = [c["score"] for c in cats if c["available"]]
+    return {
+        "date": today,
+        "overall": round(sum(scored) / len(scored)) if scored else None,
+        "tracked": len(scored),
+        "categories": cats,
+    }
+
+
 @api.get("/strength-standards")
 async def strength_standards(user=Depends(get_current_user)):
     """Relative strength (e1RM / bodyweight) for the big lifts, ranked against published standards."""
