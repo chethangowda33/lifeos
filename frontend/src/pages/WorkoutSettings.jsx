@@ -74,6 +74,28 @@ export default function WorkoutSettings() {
       </div>
 
       <Card className="p-5 space-y-1">
+        <div className="font-semibold">Weekly training goal</div>
+        <div className="text-xs text-muted-foreground mb-2">
+          Sessions per week. Drives the dashboard ring and the Fitness part of your Life Score.
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[2, 3, 4, 5, 6, 7].map((n) => (
+            <button
+              key={n}
+              onClick={() => save({ weekly_workout_target: n })}
+              className={`px-3 py-1.5 rounded-md text-sm border transition ${
+                (s.weekly_workout_target ?? 4) === n
+                  ? "bg-maroon text-white border-transparent"
+                  : "bg-muted border-border hover:border-[hsl(var(--maroon)/0.4)]"
+              }`}
+            >
+              {n}×
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <Card className="p-5 space-y-1">
         <div className="font-semibold mb-2">Default rest timer</div>
         <div className="flex flex-wrap gap-2">
           {REST_PRESETS.map((p) => (

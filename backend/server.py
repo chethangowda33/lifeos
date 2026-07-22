@@ -365,6 +365,7 @@ class WorkoutSettingsIn(BaseModel):
     train_reminder_enabled: Optional[bool] = None
     train_reminder_time: Optional[str] = None  # "HH:MM" 24h
     tz_offset_minutes: Optional[int] = None  # local offset from UTC, for background push
+    weekly_workout_target: Optional[int] = None  # sessions/week the dashboard + Life Score measure against
 
     model_config = {"extra": "ignore"}
 
@@ -382,6 +383,7 @@ DEFAULT_WORKOUT_SETTINGS: Dict[str, Any] = {
     "plate_inventory": [25, 20, 15, 10, 5, 2.5, 1.25],
     "train_reminder_enabled": False,
     "train_reminder_time": "18:00",
+    "weekly_workout_target": 4,
 }
 
 
@@ -2226,8 +2228,6 @@ async def muscle_volume(user=Depends(get_current_user)):
 
 
 # ── LIFE SCORE ────────────────────────────────────────────────────────────────
-# Weekly training target. Mirrors the dashboard ring so the two never disagree.
-WEEKLY_WORKOUT_TARGET = 4
 IDEAL_SLEEP_HOURS = 7.5
 DAILY_STEP_TARGET = 8000
 
@@ -2254,6 +2254,10 @@ async def life_score(user=Depends(get_current_user)):
     cats: List[Dict[str, Any]] = []
 
     # ── Fitness: sessions so far this week, Monday-based to match the ring ────
+    # Read the user's own weekly target — someone training 6x/week would otherwise
+    # be permanently capped at "67%" by a hardcoded 4.
+    settings = {**DEFAULT_WORKOUT_SETTINGS, **(user.get("workout_settings") or {})}
+    weekly_target = max(1, int(settings.get("weekly_workout_target") or 4))
     monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
     week_workouts = await db.workout_sessions.count_documents(
         {"user_id": uid, "created_at": {"$gte": monday.isoformat()}}
@@ -2261,9 +2265,9 @@ async def life_score(user=Depends(get_current_user)):
     ever = await db.workout_sessions.count_documents({"user_id": uid})
     cats.append({
         "key": "fitness", "label": "Fitness",
-        "score": round(_pct(week_workouts, WEEKLY_WORKOUT_TARGET)),
+        "score": round(_pct(week_workouts, weekly_target)),
         "available": ever > 0,
-        "detail": f"{week_workouts} of {WEEKLY_WORKOUT_TARGET} sessions this week",
+        "detail": f"{week_workouts} of {weekly_target} sessions this week",
     })
 
     # ── Nutrition: today's calories + protein against the user's own targets ──

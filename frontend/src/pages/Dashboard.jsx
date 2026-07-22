@@ -62,6 +62,7 @@ export default function Dashboard() {
   const [recovery, setRecovery] = useState([]); // muscle recovery status
   const [health, setHealth] = useState(null); // today's watch-synced metrics
   const [lifeScore, setLifeScore] = useState(null);
+  const [weeklyTarget, setWeeklyTarget] = useState(4);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -69,7 +70,7 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m, mv, hd, ls] = await Promise.all([
+        const [w, s, r, m, mv, hd, ls, ws] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
@@ -77,6 +78,7 @@ export default function Dashboard() {
           api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
           api.get("/health/daily").catch(() => ({ data: {} })),
           api.get("/life-score").catch(() => ({ data: null })),
+          api.get("/workout-settings").catch(() => ({ data: {} })),
         ]);
         if (!alive) return;
         setWorkouts(w.data || []);
@@ -86,6 +88,7 @@ export default function Dashboard() {
         setRecovery(mv.data || []);
         setHealth(hd.data?.today || null);
         setLifeScore(ls.data || null);
+        setWeeklyTarget(ws.data?.weekly_workout_target || 4);
       } finally {
         if (alive) setLoading(false);
       }
@@ -154,7 +157,7 @@ export default function Dashboard() {
       {/* Today band — weekly goal ring + streak + muscle recovery */}
       <TodayHero
         weekCount={derived.weekCount}
-        target={4}
+        target={weeklyTarget}
         streak={derived.streak}
         recovery={recovery}
         loading={loading}
