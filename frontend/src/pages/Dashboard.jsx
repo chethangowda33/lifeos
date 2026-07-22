@@ -77,7 +77,9 @@ export default function Dashboard() {
           api.get("/body-metrics/latest").catch(() => ({ data: {} })),
           api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
           api.get("/health/daily").catch(() => ({ data: {} })),
-          api.get("/life-score").catch(() => ({ data: null })),
+          // Send OUR local day — habits/sleep/intake are stored against it, and the
+          // server's UTC default would read the wrong day east of UTC before ~06:00.
+          api.get("/life-score", { params: { date: localKey(new Date()) } }).catch(() => ({ data: null })),
           api.get("/workout-settings").catch(() => ({ data: {} })),
         ]);
         if (!alive) return;

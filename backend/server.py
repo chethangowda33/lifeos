@@ -2240,17 +2240,28 @@ def _pct(value: float, target: float) -> float:
 
 
 @api.get("/life-score")
-async def life_score(user=Depends(get_current_user)):
+async def life_score(date: Optional[str] = None, user=Depends(get_current_user)):
     """Daily 0-100 per life category, computed from actually-logged data.
 
     Design rule: a category is only scored when the user genuinely tracks it.
     Averaging in a zero for every module someone doesn't use would tell a
     dedicated lifter who never logs meals that their life is a 40 — punishing
     them for the app's breadth rather than reflecting their effort. Untracked
-    categories are returned with `available: false` and left out of the overall."""
+    categories are returned with `available: false` and left out of the overall.
+
+    `date` is the CALLER'S local day. Habits, sleep and intake are all stored
+    against the user's local date, so defaulting to the UTC date would read the
+    wrong day for anyone east of UTC between midnight and their offset — in IST
+    that is 00:00-05:30, where a ticked habit would score zero."""
     uid = str(user["_id"])
-    now = datetime.now(timezone.utc)
-    today = now.date().isoformat()
+    if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    today = date or _today_str()
+    try:
+        day = datetime.strptime(today, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    yesterday = (day - timedelta(days=1)).date().isoformat()
     cats: List[Dict[str, Any]] = []
 
     # ── Fitness: sessions so far this week, Monday-based to match the ring ────
@@ -2258,7 +2269,7 @@ async def life_score(user=Depends(get_current_user)):
     # be permanently capped at "67%" by a hardcoded 4.
     settings = {**DEFAULT_WORKOUT_SETTINGS, **(user.get("workout_settings") or {})}
     weekly_target = max(1, int(settings.get("weekly_workout_target") or 4))
-    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    monday = day - timedelta(days=day.weekday())
     week_workouts = await db.workout_sessions.count_documents(
         {"user_id": uid, "created_at": {"$gte": monday.isoformat()}}
     )
@@ -2318,7 +2329,7 @@ async def life_score(user=Depends(get_current_user)):
     # ── Sleep: most recent night within 2 days (last night may not be logged yet)
     recent = await db.sleep_logs.find({"user_id": uid}).sort("date", -1).to_list(1)
     night = recent[0] if recent else None
-    fresh = bool(night and night.get("date", "") >= (now.date() - timedelta(days=1)).isoformat())
+    fresh = bool(night and night.get("date", "") >= yesterday)
     hours = (night or {}).get("hours") or 0
     # Oversleeping is not better than sleeping well, so score distance from ideal
     # rather than raw hours — 9h and 6h are both off-target.
