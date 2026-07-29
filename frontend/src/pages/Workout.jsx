@@ -26,6 +26,7 @@ import SplitEditor from "@/features/workout/components/SplitEditor";
 import ProgramDetailDialog from "@/components/ProgramDetailDialog";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import SwipeToDismiss from "@/components/SwipeToDismiss";
+import LoadError from "@/components/LoadError";
 
 const RECO_DISMISSED_KEY = "lifeos:reco-dismissed";       // user dismissed the recommendation
 const BUILT_MANUALLY_KEY = "lifeos:built-manually";       // user has built a routine/plan by hand
@@ -67,6 +68,7 @@ export default function Workout() {
   const [programDetail, setProgramDetail] = useState(null); // full program object with routines
   const [exerciseDetailId, setExerciseDetailId] = useState(null);
 
+  const [loadFailed, setLoadFailed] = useState(false);
   const [workouts, setWorkouts] = useState([]); // history — powers week strip + hero
   const loadWorkouts = async () => {
     try {
@@ -85,8 +87,15 @@ export default function Workout() {
   };
 
   const loadRoutines = async () => {
-    const { data } = await api.get("/routines");
-    setRoutines(data);
+    try {
+      const { data } = await api.get("/routines");
+      setRoutines(data);
+      setLoadFailed(false);
+    } catch {
+      // The empty state here invites "Create a routine" — so a failed load could
+      // walk the user into duplicating routines they already have.
+      setLoadFailed(true);
+    }
   };
 
   // Copy a plan's days into standalone, editable routines (non-destructive —
@@ -115,8 +124,13 @@ export default function Workout() {
     await api.put("/routines/reorder", { ids: next.map((r) => r.id) }).catch(() => {});
   };
   const loadPlans = async () => {
-    const { data } = await api.get("/plans");
-    setPlans(data);
+    try {
+      const { data } = await api.get("/plans");
+      setPlans(data);
+      setLoadFailed(false);
+    } catch {
+      setLoadFailed(true);
+    }
   };
 
   const reorderPlanDay = async (plan, dayIndex, dir) => {
@@ -270,18 +284,27 @@ export default function Workout() {
 
       <WeekStrip workouts={workouts} />
 
-      <HeroCard
-        plans={plans}
-        routines={routines}
-        workouts={workouts}
-        programs={programs}
-        recovery={recovery}
-        onOpenProgram={openProgram}
-        onStartDay={(planId, dayIdx) => navigate(`/workout/session/plan/${planId}/${dayIdx}`)}
-        onStartRoutine={(id) => navigate(`/workout/session/${id}`)}
-        onCreate={() => setBuilderOpen(true)}
-        onExplore={() => setView("explore")}
-      />
+      {loadFailed ? (
+        /* Replaces the hero rather than sitting above it — the hero's empty state
+           is the misleading "Nothing queued yet, create a routine". */
+        <LoadError
+          what="your routines"
+          onRetry={() => { loadRoutines(); loadPlans(); loadWorkouts(); }}
+        />
+      ) : (
+        <HeroCard
+          plans={plans}
+          routines={routines}
+          workouts={workouts}
+          programs={programs}
+          recovery={recovery}
+          onOpenProgram={openProgram}
+          onStartDay={(planId, dayIdx) => navigate(`/workout/session/plan/${planId}/${dayIdx}`)}
+          onStartRoutine={(id) => navigate(`/workout/session/${id}`)}
+          onCreate={() => setBuilderOpen(true)}
+          onExplore={() => setView("explore")}
+        />
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
         <button

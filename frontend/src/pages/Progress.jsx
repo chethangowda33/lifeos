@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { PROGRESS } from "@/constants/testIds";
 import MuscleHeatmap from "@/components/MuscleHeatmap";
+import LoadError from "@/components/LoadError";
 
 // Weekly training volume for the last `n` weeks — pure function over workout history.
 function weeklyVolume(workouts, n = 10) {
@@ -70,6 +71,7 @@ export default function Progress() {
   const [strength, setStrength] = useState([]);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(null); // workout being edited
 
   const load = async () => {
@@ -81,9 +83,16 @@ export default function Progress() {
       ]);
       setWorkouts(w.data);
       setStats(s.data);
+      setFailed(false);
+      // Secondary panels — already independently caught, so one missing panel
+      // never costs the history above it.
       api.get("/workouts/muscle-volume").then((r) => setMuscleVolume(r.data)).catch(() => {});
       api.get("/strength-standards").then((r) => setStrength(r.data.filter((x) => x.e1rm))).catch(() => {});
       api.get("/records").then((r) => setRecords(r.data.records || [])).catch(() => {});
+    } catch {
+      // The history IS this page — showing "no workouts yet" on a failed fetch
+      // would suggest a wiped account.
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -97,13 +106,26 @@ export default function Progress() {
     await load();
   };
 
+  const header = (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Track</div>
+      <h1 className="text-4xl font-semibold tracking-tight mt-1">Progress</h1>
+      <p className="text-muted-foreground text-sm mt-1">Workout history, total volume, streaks.</p>
+    </div>
+  );
+
+  if (failed) {
+    return (
+      <div data-testid={PROGRESS.root} className="max-w-5xl space-y-6 animate-fade-up">
+        {header}
+        <LoadError what="your progress" onRetry={load} />
+      </div>
+    );
+  }
+
   return (
     <div data-testid={PROGRESS.root} className="max-w-5xl space-y-6 animate-fade-up">
-      <div>
-        <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Track</div>
-        <h1 className="text-4xl font-semibold tracking-tight mt-1">Progress</h1>
-        <p className="text-muted-foreground text-sm mt-1">Workout history, total volume, streaks.</p>
-      </div>
+      {header}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatBox icon={Flame} label="Workouts" value={stats.total_workouts} />

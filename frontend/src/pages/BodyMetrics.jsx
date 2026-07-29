@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import { Plus, Pencil, RotateCcw, Eraser } from "lucide-react";
 import { BODY_METRICS, BODY_METRICS_V2 } from "@/constants/testIds";
+import LoadError from "@/components/LoadError";
 
 export default function BodyMetrics() {
   const { user, updateProfile } = useAuth();
@@ -26,17 +27,33 @@ export default function BodyMetrics() {
   const [logMetric, setLogMetric] = useState(null);
   const [logValue, setLogValue] = useState("");
 
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
   const refresh = async () => {
-    const [d, l] = await Promise.all([
-      api.get("/body-metrics/definitions"),
-      api.get("/body-metrics/latest"),
-    ]);
-    setDefs(d.data);
-    setLatest(l.data);
-    // load histories in parallel for each metric
-    const keys = Object.keys(d.data).filter((k) => !d.data[k].auto);
-    const hists = await Promise.all(keys.map((k) => api.get(`/body-metrics/history/${k}`).then((r) => [k, r.data])));
-    setHistory(Object.fromEntries(hists));
+    try {
+      const [d, l] = await Promise.all([
+        api.get("/body-metrics/definitions"),
+        api.get("/body-metrics/latest"),
+      ]);
+      setDefs(d.data);
+      setLatest(l.data);
+      // Histories are per-metric sparklines. One failing must not blank the whole
+      // page, so they settle independently of the cards above.
+      const keys = Object.keys(d.data).filter((k) => !d.data[k].auto);
+      const hists = await Promise.all(
+        keys.map((k) => api.get(`/body-metrics/history/${k}`)
+          .then((r) => [k, r.data])
+          .catch(() => [k, []])),
+      );
+      setHistory(Object.fromEntries(hists));
+      setFailed(false);
+    } catch {
+      // Previously an unhandled rejection: the page rendered with no cards at all.
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { refresh(); }, []);
@@ -84,6 +101,11 @@ export default function BodyMetrics() {
 
       {/* Inline profile summary banner */}
       <ProfileBanner user={user} onEdit={() => setProfileOpen(true)} />
+
+      {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {failed && !loading && (
+        <LoadError what="your body metrics" onRetry={() => { setLoading(true); refresh(); }} />
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {Object.entries(defs).map(([key, def]) => (

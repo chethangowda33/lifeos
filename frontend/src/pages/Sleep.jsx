@@ -12,6 +12,7 @@ import {
 import { Moon, Plus, Star, Trash2 } from "lucide-react";
 import { sendOrQueue } from "@/lib/offlineQueue";
 import localDate from "@/lib/localDate";
+import LoadError from "@/components/LoadError";
 
 // hours between a bedtime and wake time (handles crossing midnight)
 function hoursBetween(bed, wake) {
@@ -37,6 +38,7 @@ export default function Sleep() {
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const load = async () => {
@@ -44,6 +46,9 @@ export default function Sleep() {
       const { data } = await api.get("/sleep");
       setLogs(data.logs || []);
       setStats(data.stats || {});
+      setFailed(false);
+    } catch {
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -122,6 +127,8 @@ export default function Sleep() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : failed ? (
+        <LoadError what="your sleep log" onRetry={() => { setLoading(true); load(); }} />
       ) : logs.length === 0 ? (
         <Card className="p-10 text-center border-dashed">
           <Moon className="h-9 w-9 mx-auto text-maroon" />

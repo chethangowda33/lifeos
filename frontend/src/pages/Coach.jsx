@@ -336,7 +336,9 @@ export default function Coach() {
                           data-testid={COACH.copyButton}
                           onClick={() => copyMessage(i, m.content)}
                           aria-label="Copy reply"
-                          className="absolute -bottom-2 -right-2 h-7 w-7 rounded-full bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition flex items-center justify-center"
+                          /* Always visible on touch — there is no hover on a phone,
+                             so hover-only reveal made Copy unreachable there. */
+                          className="absolute -bottom-2 -right-2 h-7 w-7 rounded-full bg-background border border-border shadow-sm text-muted-foreground hover:text-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 focus:opacity-100 transition flex items-center justify-center"
                         >
                           {copiedIdx === i
                             ? <Check className="h-3.5 w-3.5 text-green-600" />

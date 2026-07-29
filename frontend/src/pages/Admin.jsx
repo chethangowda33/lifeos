@@ -5,6 +5,7 @@ import api from "@/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Users, Dumbbell, Activity, ShieldCheck } from "lucide-react";
+import LoadError from "@/components/LoadError";
 
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -17,22 +18,29 @@ export default function Admin() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+
+  const load = React.useCallback(async () => {
+    try {
+      const [s, u] = await Promise.all([
+        api.get("/admin/stats"),
+        api.get("/admin/users"),
+      ]);
+      setStats(s.data);
+      setUsers(u.data || []);
+      setFailed(false);
+    } catch {
+      // Zeroed tiles and an empty member list would read as "nobody uses this".
+      setFailed(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (user?.role !== "admin") return;
-    (async () => {
-      try {
-        const [s, u] = await Promise.all([
-          api.get("/admin/stats"),
-          api.get("/admin/users"),
-        ]);
-        setStats(s.data);
-        setUsers(u.data || []);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [user]);
+    load();
+  }, [user, load]);
 
   // Hard gate — regular members can't view this page even by URL.
   if (user && user.role !== "admin") return <Navigate to="/dashboard" replace />;
@@ -44,13 +52,26 @@ export default function Admin() {
     { icon: Dumbbell, label: "Workouts logged", value: stats?.total_workouts },
   ];
 
+  const header = (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Admin</div>
+      <h1 className="text-4xl font-semibold tracking-tight mt-1">Overview</h1>
+      <p className="text-muted-foreground text-sm mt-1">Only you can see this. Members and workout activity across LifeOS.</p>
+    </div>
+  );
+
+  if (failed) {
+    return (
+      <div className="max-w-4xl space-y-6 animate-fade-up">
+        {header}
+        <LoadError what="admin data" onRetry={() => { setLoading(true); load(); }} />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-4xl space-y-6 animate-fade-up">
-      <div>
-        <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Admin</div>
-        <h1 className="text-4xl font-semibold tracking-tight mt-1">Overview</h1>
-        <p className="text-muted-foreground text-sm mt-1">Only you can see this. Members and workout activity across LifeOS.</p>
-      </div>
+      {header}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tiles.map((t) => (

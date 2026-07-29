@@ -31,7 +31,7 @@ from bson import ObjectId
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from seed_data import EXERCISES, PROGRAMS
 
@@ -117,6 +117,19 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def _jwt_secret() -> str:
     return os.environ["JWT_SECRET"]
+
+
+def _oid(value: str, what: str = "Not found") -> ObjectId:
+    """Parse a path id, or 404.
+
+    A malformed id is a client mistake, not a server fault. Calling ObjectId()
+    bare raises InvalidId, which FastAPI surfaces as a 500 — habits and sleep
+    did exactly that while workouts, routines and plans returned 404 for the
+    same input. One helper keeps every module answering the same way."""
+    try:
+        return ObjectId(value)
+    except Exception:
+        raise HTTPException(404, what)
 
 
 def create_access_token(user_id: str, email: str) -> str:
@@ -266,51 +279,97 @@ class PlanIn(BaseModel):
     model_config = {"extra": "ignore"}
 
 
+_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _check_date(v: Optional[str]) -> Optional[str]:
+    """Reject a date that isn't YYYY-MM-DD.
+
+    These values are used as raw lookup keys. An unvalidated one is written
+    happily and then never matches anything again — the log silently vanishes
+    rather than erroring, which is the hardest kind of bug to notice."""
+    if v is None or v == "":
+        return None
+    if not _DATE_RE.fullmatch(v):
+        raise ValueError("date must be YYYY-MM-DD")
+    return v
+
+
 class BodyMetricIn(BaseModel):
     metric: str  # one of METRIC_DEFS
-    value: float
+    # Only the floor is universal. The ceiling depends entirely on the metric —
+    # body fat is a percentage, BMR is ~1500-2200 kcal/day — so it is enforced
+    # per metric in log_metric() against METRIC_DEFS["max"].
+    value: float = Field(ge=0)
 
 
 class HabitIn(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=80)
     emoji: str = "✅"
     type: str = "check"  # check | count
-    target: Optional[float] = None  # daily target for count habits
+    target: Optional[float] = Field(default=None, ge=0, le=100000)
     unit: str = ""
     model_config = {"extra": "ignore"}
+
+    @field_validator("type")
+    @classmethod
+    def _known_type(cls, v: str) -> str:
+        # Anything unrecognised silently behaved as a check habit, so a typo
+        # produced a habit whose target was quietly ignored.
+        if v not in ("check", "count"):
+            raise ValueError("type must be 'check' or 'count'")
+        return v
+
+    @field_validator("name")
+    @classmethod
+    def _non_blank(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("name cannot be blank")
+        return v
 
 
 class HabitLogIn(BaseModel):
     date: Optional[str] = None  # YYYY-MM-DD; defaults to today
-    value: Optional[float] = None  # count habits set this value; check habits toggle
+    value: Optional[float] = Field(default=None, ge=0, le=100000)
+
+    _v_date = field_validator("date")(_check_date)
 
 
 class SleepLogIn(BaseModel):
     date: Optional[str] = None  # night's date (YYYY-MM-DD); defaults to today
-    hours: float
-    quality: Optional[int] = None  # 1–5
+    # A night cannot be negative or longer than a day. Unbounded, one bad entry
+    # skewed the 7-night average and the Sleep part of the Life Score.
+    hours: float = Field(ge=0, le=24)
+    quality: Optional[int] = Field(default=None, ge=1, le=5)
     bedtime: str = ""
     wake_time: str = ""
     model_config = {"extra": "ignore"}
+
+    _v_date = field_validator("date")(_check_date)
 
 
 class HealthIngestIn(BaseModel):
     """Brand-agnostic daily health payload pushed by a phone automation / export app.
     Works with ANY source that writes to Apple Health (iPhone) or Health Connect
     (Android) — Apple/Garmin/Fitbit/Fastrack/phone pedometer all funnel through there."""
+    # Bounds are deliberately generous — the point is to reject a mis-mapped
+    # automation field (a timestamp landing in `steps`, a metre value in
+    # `distance_km`) rather than to police physiology.
     date: Optional[str] = None  # YYYY-MM-DD; defaults to today
-    steps: Optional[int] = None
-    distance_km: Optional[float] = None
-    resting_hr: Optional[int] = None
-    avg_hr: Optional[int] = None              # average heart rate (bpm)
-    hrv: Optional[float] = None               # HRV SDNN (ms) — basis of most stress scores
-    spo2: Optional[float] = None              # blood oxygen (%)
-    stress: Optional[int] = None             # 0–100 (watch-reported or HRV-derived)
-    respiratory_rate: Optional[float] = None  # breaths/min
-    active_energy: Optional[float] = None  # kcal
-    sleep_hours: Optional[float] = None
-    sleep_quality: Optional[int] = None  # 1–5
+    steps: Optional[int] = Field(default=None, ge=0, le=300000)
+    distance_km: Optional[float] = Field(default=None, ge=0, le=1000)
+    resting_hr: Optional[int] = Field(default=None, ge=0, le=300)
+    avg_hr: Optional[int] = Field(default=None, ge=0, le=300)
+    hrv: Optional[float] = Field(default=None, ge=0, le=1000)
+    spo2: Optional[float] = Field(default=None, ge=0, le=100)
+    stress: Optional[int] = Field(default=None, ge=0, le=100)
+    respiratory_rate: Optional[float] = Field(default=None, ge=0, le=200)
+    active_energy: Optional[float] = Field(default=None, ge=0, le=50000)
+    sleep_hours: Optional[float] = Field(default=None, ge=0, le=24)
+    sleep_quality: Optional[int] = Field(default=None, ge=1, le=5)
     model_config = {"extra": "ignore"}
+
+    _v_date = field_validator("date")(_check_date)
 
 
 # Daily metrics that upsert into health_daily (sleep is handled separately below).
@@ -394,14 +453,17 @@ METRIC_DEFS: Dict[str, Dict[str, Any]] = {
     # Weight is a first-class tracked metric, not just a profile field — otherwise the
     # app can't draw the one trend users most expect. Its ideal range is height-dependent,
     # so metric_definitions() overrides these placeholders per user (BMI 18.5–24.9).
-    "weight": {"label": "Weight", "unit": "kg", "ideal_min": 57, "ideal_max": 76, "auto": False},
-    "body_fat": {"label": "Body Fat", "unit": "%", "ideal_min": 10, "ideal_max": 20, "auto": False},
-    "muscle_mass": {"label": "Muscle Mass", "unit": "%", "ideal_min": 38, "ideal_max": 54, "auto": False},
-    "bone_mass": {"label": "Bone Mass", "unit": "kg", "ideal_min": 2.5, "ideal_max": 3.5, "auto": False},
-    "hydration": {"label": "Hydration", "unit": "%", "ideal_min": 55, "ideal_max": 65, "auto": False},
-    "metabolic_age": {"label": "Metabolic Age", "unit": "years", "ideal_min": 18, "ideal_max": 40, "auto": False},
-    "bmi": {"label": "BMI", "unit": "kg/m²", "ideal_min": 18.5, "ideal_max": 24.9, "auto": True},
-    "bmr": {"label": "BMR", "unit": "kcal/day", "ideal_min": 1500, "ideal_max": 2200, "auto": True},
+    # `max` is a plausibility ceiling, NOT the ideal range — a user may log well
+    # outside ideal and should be allowed to. It exists only to catch a typo or a
+    # wrong-unit entry (lbs into a kg field) before it skews every derived chart.
+    "weight": {"label": "Weight", "unit": "kg", "ideal_min": 57, "ideal_max": 76, "auto": False, "max": 500},
+    "body_fat": {"label": "Body Fat", "unit": "%", "ideal_min": 10, "ideal_max": 20, "auto": False, "max": 100},
+    "muscle_mass": {"label": "Muscle Mass", "unit": "%", "ideal_min": 38, "ideal_max": 54, "auto": False, "max": 100},
+    "bone_mass": {"label": "Bone Mass", "unit": "kg", "ideal_min": 2.5, "ideal_max": 3.5, "auto": False, "max": 20},
+    "hydration": {"label": "Hydration", "unit": "%", "ideal_min": 55, "ideal_max": 65, "auto": False, "max": 100},
+    "metabolic_age": {"label": "Metabolic Age", "unit": "years", "ideal_min": 18, "ideal_max": 40, "auto": False, "max": 120},
+    "bmi": {"label": "BMI", "unit": "kg/m²", "ideal_min": 18.5, "ideal_max": 24.9, "auto": True, "max": 100},
+    "bmr": {"label": "BMR", "unit": "kcal/day", "ideal_min": 1500, "ideal_max": 2200, "auto": True, "max": 10000},
 }
 
 
@@ -1134,8 +1196,12 @@ async def latest_metrics(user=Depends(get_current_user)):
 async def log_metric(payload: BodyMetricIn, user=Depends(get_current_user)):
     if payload.metric not in METRIC_DEFS:
         raise HTTPException(400, "Unknown metric")
-    if METRIC_DEFS[payload.metric]["auto"]:
+    defn = METRIC_DEFS[payload.metric]
+    if defn["auto"]:
         raise HTTPException(400, "Auto-computed metric cannot be logged manually")
+    ceiling = defn.get("max")
+    if ceiling is not None and payload.value > ceiling:
+        raise HTTPException(400, f"{defn['label']} cannot exceed {ceiling} {defn['unit']}")
     doc = {
         "user_id": str(user["_id"]),
         "metric": payload.metric,
@@ -1250,7 +1316,9 @@ async def create_habit(payload: HabitIn, user=Depends(get_current_user)):
 async def update_habit(habit_id: str, payload: HabitIn, user=Depends(get_current_user)):
     upd = {"name": payload.name.strip(), "emoji": payload.emoji, "type": payload.type,
            "target": payload.target, "unit": payload.unit}
-    res = await db.habits.update_one({"_id": ObjectId(habit_id), "user_id": str(user["_id"])}, {"$set": upd})
+    res = await db.habits.update_one(
+        {"_id": _oid(habit_id, "Habit not found"), "user_id": str(user["_id"])}, {"$set": upd}
+    )
     if not res.matched_count:
         raise HTTPException(404, "Habit not found")
     return {"ok": True}
@@ -1259,7 +1327,7 @@ async def update_habit(habit_id: str, payload: HabitIn, user=Depends(get_current
 @api.delete("/habits/{habit_id}")
 async def delete_habit(habit_id: str, user=Depends(get_current_user)):
     uid = str(user["_id"])
-    await db.habits.delete_one({"_id": ObjectId(habit_id), "user_id": uid})
+    await db.habits.delete_one({"_id": _oid(habit_id, "Habit not found"), "user_id": uid})
     await db.habit_logs.delete_many({"habit_id": habit_id, "user_id": uid})
     return {"ok": True}
 
@@ -1267,7 +1335,7 @@ async def delete_habit(habit_id: str, user=Depends(get_current_user)):
 @api.post("/habits/{habit_id}/log")
 async def log_habit(habit_id: str, payload: HabitLogIn, user=Depends(get_current_user)):
     uid = str(user["_id"])
-    habit = await db.habits.find_one({"_id": ObjectId(habit_id), "user_id": uid})
+    habit = await db.habits.find_one({"_id": _oid(habit_id, "Habit not found"), "user_id": uid})
     if not habit:
         raise HTTPException(404, "Habit not found")
     d = payload.date or _today_str()
@@ -1317,7 +1385,7 @@ async def log_sleep(payload: SleepLogIn, user=Depends(get_current_user)):
 
 @api.delete("/sleep/{sleep_id}")
 async def delete_sleep(sleep_id: str, user=Depends(get_current_user)):
-    await db.sleep_logs.delete_one({"_id": ObjectId(sleep_id), "user_id": str(user["_id"])})
+    await db.sleep_logs.delete_one({"_id": _oid(sleep_id, "Sleep log not found"), "user_id": str(user["_id"])})
     return {"ok": True}
 
 
@@ -1434,32 +1502,48 @@ async def health_ingest_raw(request: Request, metric: str = "steps", date: Optio
     if metric not in HEALTH_DAILY_FIELDS and metric != "sleep_hours":
         raise HTTPException(400, f"Unknown metric '{metric}'")
 
+    if date is not None and not _DATE_RE.fullmatch(date):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+
     raw = (await request.body()).decode("utf-8", errors="replace")
     parsed = _sum_health_payload(raw)
     uid = str(user["_id"])
     d = date or _today_str()
 
     stored = False
+    rejected = None
     if parsed["total"] is not None:
         value = round(parsed["total"], 2)
-        if metric == "sleep_hours":
-            await db.sleep_logs.update_one(
-                {"user_id": uid, "date": d},
-                {"$set": {"user_id": uid, "date": d, "hours": value, "source": "sync"}},
-                upsert=True,
-            )
-        else:
-            await db.health_daily.update_one(
-                {"user_id": uid, "date": d},
-                {"$set": {metric: value, "synced_at": datetime.now(timezone.utc).isoformat()}},
-                upsert=True,
-            )
-        stored = True
+        # Run the summed value through the same bounds the JSON endpoint uses, so
+        # a mis-mapped Shortcuts field can't write a nonsense figure by taking the
+        # raw path instead. Reported rather than silently dropped.
+        try:
+            HealthIngestIn(**{metric: value})
+            in_range = True
+        except Exception:
+            rejected = f"{value} is out of range for {metric}"
+            in_range = False
+
+        if in_range:
+            if metric == "sleep_hours":
+                await db.sleep_logs.update_one(
+                    {"user_id": uid, "date": d},
+                    {"$set": {"user_id": uid, "date": d, "hours": value, "source": "sync"}},
+                    upsert=True,
+                )
+            else:
+                await db.health_daily.update_one(
+                    {"user_id": uid, "date": d},
+                    {"$set": {metric: value, "synced_at": datetime.now(timezone.utc).isoformat()}},
+                    upsert=True,
+                )
+            stored = True
 
     return {
         "ok": True, "date": d, "metric": metric, "stored": stored,
         "total": parsed["total"], "samples": parsed["count"],
         "parsed_as": parsed["parsed_as"],
+        "rejected": rejected,
         "received_preview": raw[:300],
     }
 

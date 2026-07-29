@@ -10,6 +10,7 @@ import {
 import { Plus, Flame, Check, Trash2, Minus, ListChecks } from "lucide-react";
 import { sendOrQueue } from "@/lib/offlineQueue";
 import localDate from "@/lib/localDate";
+import LoadError from "@/components/LoadError";
 
 const EMOJI_CHOICES = ["✅", "💧", "🏃", "📚", "🧘", "🥗", "💊", "😴", "🚭", "🧠", "☀️", "💪"];
 
@@ -27,6 +28,7 @@ function last14() {
 export default function Habits() {
   const [habits, setHabits] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const days = last14();
 
@@ -34,6 +36,11 @@ export default function Habits() {
     try {
       const { data } = await api.get("/habits");
       setHabits(data || []);
+      setFailed(false);
+    } catch {
+      // Without this the page fell through to its empty state and a failed
+      // request looked exactly like "you have no habits".
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -82,6 +89,8 @@ export default function Habits() {
 
       {loading ? (
         <p className="text-sm text-muted-foreground">Loading…</p>
+      ) : failed ? (
+        <LoadError what="your habits" onRetry={() => { setLoading(true); load(); }} />
       ) : habits.length === 0 ? (
         <Card className="p-10 text-center border-dashed">
           <ListChecks className="h-9 w-9 mx-auto text-maroon" />

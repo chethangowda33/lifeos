@@ -3,6 +3,7 @@ import api, { API_BASE } from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Footprints, HeartPulse, Flame, Watch, Copy, Check, RefreshCw, Eye, EyeOff, Activity, Gauge, Droplets, Route } from "lucide-react";
+import LoadError from "@/components/LoadError";
 
 function CopyButton({ text }) {
   const [copied, setCopied] = useState(false);
@@ -21,12 +22,18 @@ export default function Connections() {
   const [daily, setDaily] = useState(null);
   const [reveal, setReveal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
 
   const load = async () => {
     try {
       const [c, d] = await Promise.all([api.get("/health/connection"), api.get("/health/daily")]);
       setConn(c.data);
       setDaily(d.data);
+      setFailed(false);
+    } catch {
+      // A blank sync key reads as "you don't have one" — alarming, and it invites
+      // a needless regenerate that would break a working automation.
+      setFailed(true);
     } finally {
       setLoading(false);
     }
@@ -71,13 +78,27 @@ export default function Connections() {
   "sleep_quality": 4
 }`;
 
+  const header = (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Sync</div>
+      <h1 className="text-4xl font-semibold tracking-tight mt-1">Connections</h1>
+      <p className="text-muted-foreground text-sm mt-1">Auto-import steps, heart rate, and sleep from your watch or phone.</p>
+    </div>
+  );
+
+  // Bail before the key + tiles rather than rendering them blank.
+  if (failed) {
+    return (
+      <div className="max-w-3xl space-y-6 animate-fade-up">
+        {header}
+        <LoadError what="your sync settings" onRetry={() => { setLoading(true); load(); }} />
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl space-y-6 animate-fade-up">
-      <div>
-        <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Sync</div>
-        <h1 className="text-4xl font-semibold tracking-tight mt-1">Connections</h1>
-        <p className="text-muted-foreground text-sm mt-1">Auto-import steps, heart rate, and sleep from your watch or phone.</p>
-      </div>
+      {header}
 
       {/* Live status */}
       <div className="grid grid-cols-3 gap-3">
