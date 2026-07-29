@@ -128,14 +128,22 @@ export default function Habits() {
 
                 {h.type === "count" ? (
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => setCount(h, (h.today_value || 0) - 1)} className="h-8 w-8 rounded-full border border-border flex items-center justify-center hover:bg-muted">
+                    <button
+                      onClick={() => setCount(h, (h.today_value || 0) - 1)}
+                      aria-label={`Decrease ${h.name}`}
+                      className="h-8 w-8 rounded-full border border-border flex items-center justify-center hover:bg-muted"
+                    >
                       <Minus className="h-4 w-4" />
                     </button>
                     <div className="text-center w-12">
                       <div className="text-sm font-semibold tabular-nums">{h.today_value || 0}<span className="text-muted-foreground font-normal">/{h.target}</span></div>
                       {h.unit && <div className="text-[9px] text-muted-foreground">{h.unit}</div>}
                     </div>
-                    <button onClick={() => setCount(h, (h.today_value || 0) + 1)} className="h-8 w-8 rounded-full border border-border flex items-center justify-center hover:bg-muted">
+                    <button
+                      onClick={() => setCount(h, (h.today_value || 0) + 1)}
+                      aria-label={`Increase ${h.name}`}
+                      className="h-8 w-8 rounded-full border border-border flex items-center justify-center hover:bg-muted"
+                    >
                       <Plus className="h-4 w-4" />
                     </button>
                   </div>

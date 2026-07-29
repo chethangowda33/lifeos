@@ -159,6 +159,10 @@ export default function SetRow({
       <button
         data-testid={SESSION.completeSetButton}
         onClick={onToggleComplete}
+        /* The most-pressed control in a session, and it announced as just
+           "button". `label` is the set's displayed number (or W/D/F/A). */
+        aria-label={`${completed ? "Undo set" : "Complete set"} ${label ?? index + 1}`}
+        aria-pressed={completed}
         className={`h-7 w-7 mx-auto rounded-md flex items-center justify-center transition-all duration-150 active:scale-90 border ${
           completed
             ? "bg-green-600 text-white border-green-600 shadow-[0_0_12px_-2px_rgba(22,163,74,0.7)]"
