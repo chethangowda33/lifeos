@@ -106,6 +106,42 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 7 (2026-07-29) — systematic polish pass. Suite 66 → 85.**
+- **A failed load no longer looks like an empty account.** Habits, Sleep, Progress, Body
+  Metrics, Connections, Admin and Workout all caught nothing on load, so a server hiccup
+  rendered the EMPTY state — indistinguishable from "you have no habits yet". Workout was
+  worst (its empty state invites "Create a routine", so a failure could cause duplicates);
+  Body Metrics worse still (`refresh()` had no `try` at all → unhandled rejection, zero cards).
+  New shared `components/LoadError.jsx` with retry, wired into all seven. Pages whose
+  remaining content would render blank return early instead.
+  **Verified by forcing every /api call to fail at the XHR layer**: all 7 show the error,
+  none show the misleading empty state, and Try again recovers.
+- **Input validation at the edge.** Sleep hours were unbounded (a 9999 wrecked the average
+  AND the Life Score); `quality` had a documented 1-5 that was never enforced; habit `type`
+  was free text so a typo silently became a check habit ignoring its target; date fields were
+  raw lookup keys with no format check, so a bad one was written then never matched again —
+  the log just vanished. All bounded now. Health payload bounds are deliberately generous
+  (catch a mis-mapped automation field, not police physiology), and `/health/ingest/raw`
+  reuses the same model so it can't bypass them.
+  - **Body-metric ceilings are PER METRIC** in `METRIC_DEFS["max"]`. My first attempt used one
+    global bound and rejected a legitimate BMR of 1700 kcal/day — caught by an existing test.
+- **Malformed path id returned 500** on habits/sleep where every other module returned 404.
+  One `_oid()` helper; all consistent now.
+- **Icon-only buttons had no accessible name** — including the complete-set button, the most
+  pressed control in the app. Now "Complete set 3" / "Undo set 3" with `aria-pressed`. The
+  habit +/− are named too. (Also why they were the hardest things to drive in testing.)
+- **AI Coach copy button was hover-only** → unreachable on mobile, the primary platform.
+- **Clicked through everything**: 11 routes, 128 buttons, **0 console errors, 0 unhandled
+  rejections**. Exercised: all 7 settings toggles + rest presets + the new weekly-goal picker
+  (all round-trip with zero drift), habit create→count→delete, body-metric log + ceiling
+  rejection, sleep log → Life Score unlocking at 2 signals (0 + 93 → 46), intake
+  create→update→delete with correct quantity scaling.
+- **Left alone deliberately:** the offline queue (user asked to hold it).
+- **Note for testing:** headless Radix leaves a `data-state="closed"` overlay AND
+  `body{pointer-events:none}`; clicks silently miss until both are cleared. Real browsers are
+  fine. Also — do NOT remove `[data-state=closed]` nodes wholesale via JS, it damages the app
+  DOM; reload instead.
+
 **SESSION 6 (2026-07-22) — push live on a real phone, share-button hang fixed, Life Score built.**
 - **Push notifications are LIVE and proven on the user's iPhone.** VAPID keys +
   `PUSH_DISPATCH_SECRET` are set on Render; `/push/config` reports `configured: true`.

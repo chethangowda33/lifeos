@@ -459,7 +459,68 @@ The picker opens from the session, search filters correctly (typing "Lateral Rai
 to matching lifts), and selection adds to the session. Multi-select mode is active for add and
 single-tap for replace, as designed.
 
-## 20. Still not covered
+## 20. Polish pass (2026-07-29, session 7)
+
+Not a feature — a sweep across every page and model looking for what was quietly wrong.
+
+### A failed load rendered the EMPTY state
+The worst find. Seven pages caught nothing on load, so a server hiccup was
+indistinguishable from an empty account:
+
+| Page | What a failure looked like |
+|---|---|
+| Workout | "Nothing queued yet — **Create a routine**" → invites duplicating routines you own |
+| Habits | "Build your first habit" |
+| Sleep | "Log your first night" |
+| Body Metrics | **No cards at all** — `refresh()` had no `try`, so it was an unhandled rejection |
+| Connections | A **blank sync key** — reads as "you don't have one", invites a needless regenerate |
+| Admin | Zeroed tiles, empty member list |
+| Progress | Empty history |
+
+One shared `LoadError` card with retry now covers all seven, and pages whose remaining
+content would render blank return early rather than showing empty fields under an error.
+
+**Verified** by forcing every `/api` call to fail at the XHR layer in a logged-in session:
+all seven show the error, none show the misleading empty state, and **Try again recovers**.
+
+### Values that silently corrupted derived data
+
+| Was | Now |
+|---|---|
+| `hours: float` unbounded | `0-24` — a 9999 wrecked the 7-night average *and* the Life Score |
+| `quality` documented 1-5, unenforced | `1-5` |
+| habit `type` free text | `check`\|`count` — a typo silently became a check habit that ignored its target |
+| `date` unvalidated | `YYYY-MM-DD` — these are raw lookup keys, so a bad one was written then never matched again; the log just vanished |
+| health metrics unbounded | generous ceilings, aimed at catching a mis-mapped automation field |
+| body metric one global bound | **per metric** in `METRIC_DEFS["max"]` |
+
+That last row is worth noting: the first attempt used a single ceiling and rejected a
+legitimate **BMR of 1700 kcal/day**. An existing test caught it — which is the argument for
+running the suite rather than trusting new code.
+
+`/health/ingest/raw` writes directly, so it now revalidates through `HealthIngestIn` — it
+must not become a way around the bounds the JSON endpoint enforces.
+
+### Consistency and reach
+- A malformed path id returned **500** on habits and sleep where every other module returned
+  404. One `_oid()` helper — a client mistake is not a server fault.
+- Icon-only buttons had **no accessible name**, including the complete-set button (the most
+  pressed control in the app). Now `"Complete set 3"` / `"Undo set 3"` with `aria-pressed`.
+  An unnamed control is also unaddressable by anything driving the UI by name — which is
+  exactly why these were the hardest things to reach in testing.
+- The AI Coach **copy button was hover-only**, so it was unreachable on mobile.
+
+### Click-through
+11 routes, 128 buttons, **0 console errors, 0 unhandled rejections**. Exercised end to end:
+all 7 settings toggles + rest presets + the weekly-goal picker (round-trip, zero drift),
+habit create→count→delete, body-metric log + ceiling rejection with a readable message
+(*"Body Fat cannot exceed 100 %"*), sleep log → Life Score unlocking at two signals
+(0 + 93 → **46**), and intake create→update→delete with correct quantity scaling
+(180×2=360, ×3=540).
+
+**Backend suite 66 → 85.** The offline queue was left untouched by request.
+
+## 21. Still not covered
 
 - **Push has not delivered to a real browser endpoint** — the dispatch path, auth, pruning and
   idempotency are all tested, but an actual notification arriving on a device needs the keys
