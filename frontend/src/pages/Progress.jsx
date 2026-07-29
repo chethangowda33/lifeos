@@ -12,6 +12,13 @@ import {
 import { PROGRESS } from "@/constants/testIds";
 import MuscleHeatmap from "@/components/MuscleHeatmap";
 import LoadError from "@/components/LoadError";
+import {
+  RANGES, filterByRange, timeSeries, summary, muscleTotals, exerciseOptions,
+  strengthSeries, compact, fmtDuration,
+} from "@/features/progress/analytics";
+import {
+  VolumeChart, FrequencyChart, StrengthChart, MuscleSplitChart, DurationChart, DataTable,
+} from "@/features/progress/charts";
 
 // Weekly training volume for the last `n` weeks — pure function over workout history.
 function weeklyVolume(workouts, n = 10) {
@@ -73,6 +80,9 @@ export default function Progress() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [editing, setEditing] = useState(null); // workout being edited
+  const [range, setRange] = useState("12w");
+  const [view, setView] = useState("chart");
+  const [exerciseId, setExerciseId] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -106,6 +116,34 @@ export default function Progress() {
     await load();
   };
 
+  // ── Derived analytics for the selected range ──────────────────────────────
+  const rangeDef = RANGES.find((r) => r.key === range) || RANGES[1];
+  const rangeLabel = rangeDef.label;
+  const ranged = useMemo(() => filterByRange(workouts, rangeDef.days), [workouts, rangeDef.days]);
+  const series = useMemo(() => timeSeries(ranged, rangeDef.days), [ranged, rangeDef.days]);
+  const summaryStats = useMemo(() => summary(ranged, rangeDef.days), [ranged, rangeDef.days]);
+  const muscles = useMemo(() => muscleTotals(ranged), [ranged]);
+  const exercises = useMemo(() => exerciseOptions(workouts), [workouts]);
+  const strengthTrend = useMemo(() => strengthSeries(ranged, exerciseId), [ranged, exerciseId]);
+
+  // Default the strength picker to the most-trained lift once history arrives.
+  useEffect(() => {
+    if (!exerciseId && exercises.length) setExerciseId(exercises[0].id);
+  }, [exercises, exerciseId]);
+
+  /* GET /workouts is capped at 200 sessions, so for a long history the derived
+     totals would silently under-report. When the cap is in play on "All", trust
+     the server's own aggregate for the headline numbers instead. */
+  const capped = workouts.length >= 200;
+  const headline = (rangeDef.days === null && capped)
+    ? {
+      sessions: stats.total_workouts,
+      volume: stats.total_volume,
+      sets: stats.total_sets,
+      duration: stats.total_duration,
+    }
+    : summaryStats;
+
   const header = (
     <div>
       <div className="text-xs uppercase tracking-widest text-maroon font-semibold">Track</div>
@@ -127,14 +165,82 @@ export default function Progress() {
     <div data-testid={PROGRESS.root} className="max-w-5xl space-y-6 animate-fade-up">
       {header}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <StatBox icon={Flame} label="Workouts" value={stats.total_workouts} />
-        <StatBox icon={Dumbbell} label="Total Volume" value={`${stats.total_volume.toFixed(0)} kg`} />
-        <StatBox icon={TrendingUp} label="Total Sets" value={stats.total_sets} />
-        <StatBox icon={Calendar} label="Total Time" value={fmtMinutes(stats.total_duration)} />
+      {/* One filter row above everything it scopes — never per-chart controls. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="inline-flex rounded-lg border border-border p-0.5">
+          {RANGES.map((r) => (
+            <button
+              key={r.key}
+              onClick={() => setRange(r.key)}
+              aria-pressed={range === r.key}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                range === r.key
+                  ? "bg-maroon text-white"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+        <div className="inline-flex rounded-lg border border-border p-0.5">
+          {[["chart", "Charts"], ["table", "Table"]].map(([v, lbl]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              aria-pressed={view === v}
+              className={`px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                view === v ? "bg-maroon text-white" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <VolumeTrend workouts={workouts} loading={loading} />
+      {/* KPI row — scoped to the selected range, so it always agrees with the charts. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatBox icon={Flame} label={rangeLabel === "All" ? "Workouts" : `Workouts · ${rangeLabel}`} value={headline.sessions} />
+        <StatBox icon={Dumbbell} label="Volume" value={`${compact(headline.volume)} kg`} />
+        <StatBox icon={TrendingUp} label="Sets" value={headline.sets} />
+        <StatBox icon={Calendar} label="Time" value={fmtDuration(headline.duration)} />
+      </div>
+
+      {/* Second row: the derived numbers a report is actually read for. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatBox icon={Dumbbell} label="Avg / session" value={`${compact(summaryStats.avgVolume)} kg`} />
+        <StatBox icon={Calendar} label="Avg duration" value={fmtDuration(summaryStats.avgDuration)} />
+        <StatBox icon={TrendingUp} label="Avg sets" value={summaryStats.avgSets} />
+        <StatBox
+          icon={Flame}
+          label={`Consistency · ${summaryStats.bucketMode === "month" ? "months" : "weeks"} trained`}
+          value={`${summaryStats.consistency}%`}
+        />
+      </div>
+
+      {view === "table" ? (
+        <DataTable
+          series={series}
+          muscles={muscles}
+          strength={strengthTrend}
+          exerciseName={exercises.find((e) => e.id === exerciseId)?.name || ""}
+          mode={summaryStats.bucketMode}
+        />
+      ) : (
+        <>
+          <VolumeChart data={series} />
+          <FrequencyChart data={series} mode={summaryStats.bucketMode} />
+          <StrengthChart
+            data={strengthTrend}
+            exercises={exercises}
+            selected={exerciseId}
+            onSelect={setExerciseId}
+          />
+          <MuscleSplitChart data={muscles} />
+          <DurationChart data={series} />
+        </>
+      )}
 
       <PRShelf records={records} />
 
