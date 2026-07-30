@@ -739,7 +739,73 @@ once its rules are actually met.
   converts to UTC first — east of Greenwich every cell in the grid shifted back a day. It now
   uses `lib/localDate`, and a unit test covers it.
 
-## 25. Still not covered
+## 25. Quick-log: typing or saying a set (2026-07-31, session 10)
+
+A text field + mic in the live session's sticky header. Type or say `bench 80 by 8 rpe 8`
+and the set is logged. `features/workout/lib/parseSetEntry.js` (pure, **47 unit tests**) +
+`features/workout/session/QuickLog.jsx`.
+
+### Local parse, not a round trip
+The moment this exists for is the worst UX moment in the app: mid-set, one-handed, and the
+gym has no signal. So the parse is **local and instant** — no network call in the one place
+the app most needs to be fast, and no dependency on a connection that isn't there. An LLM
+fallback would be for phrasings the grammar can't reach; it is deliberately **not** on the
+common path, which is `80x8`.
+
+Speech uses the browser's own recogniser (`webkitSpeechRecognition`) — on-device, no audio
+upload, no API cost — and the mic simply isn't rendered where the API doesn't exist.
+
+### What the grammar takes
+`80x8` · `80 x 8` · `80*8` · `80 by 8` · `80 for 8` · `80kg x 8` · `82.5x5` · `bw x 12` ·
+`warmup 40x10` · `drop set 40x10` · `40x10 to failure` · `amrap 40x10` · `@ 8` / `rpe 9`,
+with an optional exercise name in front. Speech-specific handling lives in the parser, not
+the mic code, because the two things recognition reliably does are transcribe "×" as **"by"**
+and spell numbers out — `eighty by eight` → 80 × 8, including tens-ones compounds
+(`eighty five`) and hundreds (`one hundred and ten`).
+
+### Judgement calls worth keeping
+- **Undo, not confirm.** A confirm step costs a tap in the exact moment being optimised. The
+  log fires immediately and the toast carries Undo, which restores the *prior* set rather
+  than deleting — a mis-read costs one tap and loses nothing already typed.
+- **"at" is not RPE.** `@` and the literal word `rpe` are accepted; a bare "at" is not,
+  because "3 sets at 80" means weight and guessing writes a bogus RPE onto the set.
+- **Bounds are the real safety net.** Weight >1000 kg or reps >500 are refused. An undo toast
+  can rescue a number the user *noticed*; it can't rescue one they didn't, and a bogus
+  8000 kg moves volume, e1RM, PRs, the report and the achievements all at once.
+- **A name that matches nothing is refused, not guessed.** `deadlift 100x5` in a session with
+  no deadlift errors rather than logging onto whatever is in focus.
+- **No units conversion.** `lbs` is rejected rather than accepted-and-stored-as-kg, which
+  would silently corrupt every volume figure downstream.
+- **No name means "the lift I'm on"** — the first exercise with an unfinished set. This is
+  the fast path and it must not require typing a name.
+- **Ties break toward the unfinished lift.** If two lifts match equally, the one you haven't
+  finished is the one you meant.
+- The **live PR check was extracted** out of `toggleComplete` into `celebratePR()` and is now
+  shared, so a PR set logged by voice celebrates exactly as a tapped one does. Quick-log also
+  starts the rest timer, so both paths behave identically.
+
+### Verified
+- 47 parser tests, green first run; suite 58 → 105.
+- Driven in the browser on a live session with two deliberately ambiguous lifts (Barbell
+  Bench Press + Barbell Incline Bench Press, both containing "bench"): `80x8 @ 8` filled and
+  completed the open set with volume moving **400 → 1040 kg** (400 + 80×8, exact) and the
+  toast reading *"Barbell Bench Press · 80 kg × 8 · RPE 8"*; **Undo** restored it to 400 kg
+  with the row intact and un-completed; `incline 60 x 5` routed by **name** to the second
+  lift rather than the one in focus; `incline 62.5 by 5 rpe 9` **appended** a row because
+  that lift's sets were all done; `warmup bench bw x 12` logged bodyweight; the rest timer
+  started. Final volume 1012.5 reconciles exactly (400 + 300 + 312.5).
+- Refusals verified live: `deadlift 100x5` → *"No 'deadlift' in this workout."*, junk text →
+  *"Couldn't find a set in that"*, and the session snapshot was **unchanged** after both.
+- 375px: QuickLog itself contributes **zero** horizontal overflow. ⚠️ The measurement did
+  surface a **pre-existing** overflow in the *rest timer* row (`−15 / 00:42 / +15 / skip`
+  lands ~12px past the right edge) — it only appears while a timer is running, which is why
+  earlier mobile passes missed it. Filed separately, not fixed here.
+- **Environment note (again):** closing a Radix dialog in the headless pane leaves
+  `body{pointer-events:none}` and `data-state="closed"` nodes, so real pointer clicks land
+  nowhere. This is the artifact documented in sessions 2/4/7. Reload clears it; the React
+  handlers were then driven directly, which is the documented workaround.
+
+## 26. Still not covered
 
 Accurate as of session 9 (challenges). Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is

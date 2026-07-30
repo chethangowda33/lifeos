@@ -25,6 +25,9 @@ import ShareWorkoutButton from "@/components/ShareWorkoutCard";
 import IntervalTimer from "@/components/IntervalTimer";
 import ExercisePicker from "@/components/ExercisePicker";
 import ExerciseSessionCard from "@/features/workout/session/ExerciseCard";
+import QuickLog from "@/features/workout/session/QuickLog";
+import { describeSet } from "@/features/workout/lib/parseSetEntry";
+import { ToastAction } from "@/components/ui/toast";
 import { StatPill, MiniStat } from "@/features/workout/session/StatPill";
 import { fmtClock, fmtDuration, fmtRelative } from "@/features/workout/lib/format";
 import { buildWorkoutPayload, describeApiError } from "@/features/workout/lib/payload";
@@ -369,6 +372,11 @@ export default function WorkoutSession() {
   const setEx = (i, fn) =>
     setExercises((arr) => arr.map((e, idx) => (idx === i ? fn(e) : e)));
 
+  const EMPTY_SET = {
+    set_type: "working", kg: null, reps: null, duration_seconds: null, rpe: null,
+    completed: false, previous: null,
+  };
+
   const saveExerciseNote = (exerciseId, note) => {
     setExerciseNotes((m) => ({ ...m, [exerciseId]: note }));
     api.put(`/exercises/${exerciseId}/note`, { note }).catch(() => {});
@@ -381,15 +389,87 @@ export default function WorkoutSession() {
     }));
 
   const addSet = (exIdx) =>
-    setEx(exIdx, (e) => ({
-      ...e,
-      sets: [...e.sets, {
-        set_type: "working", kg: null, reps: null, duration_seconds: null, rpe: null, completed: false, previous: null,
-      }],
-    }));
+    setEx(exIdx, (e) => ({ ...e, sets: [...e.sets, EMPTY_SET] }));
 
   const removeSet = (exIdx, setIdx) =>
     setEx(exIdx, (e) => ({ ...e, sets: e.sets.filter((_, j) => j !== setIdx) }));
+
+  /* Live PR check — real-time against stored records. Shared by tap-to-complete
+     and quick-log, so a set logged by voice celebrates the same as one tapped in. */
+  const celebratePR = (ex, s) => {
+    if (settings?.live_pr_notification_enabled === false || s.set_type === "warmup") return;
+    const rec = recordsRef.current[ex.exercise_id] || {};
+    const kg = Number(s.kg) || 0;
+    const reps = Number(s.reps) || 0;
+    const dur = Number(s.duration_seconds) || 0;
+    const dist = Number(s.distance_m) || 0;
+    const beats = [];
+    if (kg && kg > (rec.weight?.value || 0)) beats.push(`${kg} kg — heaviest weight`);
+    if (kg && reps && kg * reps > (rec.volume?.value || 0)) beats.push(`${(kg * reps).toFixed(0)} kg set volume`);
+    if (dur && dur > (rec.duration?.value || 0)) beats.push("longest duration");
+    if (dist && dist > (rec.distance?.value || 0)) beats.push(`${dist} m — longest distance`);
+    if (beats.length && Object.keys(rec).length) {
+      try { navigator.vibrate?.(200); } catch { /* ignore */ }
+      toast({ title: `🏆 New PR — ${ex.name}`, description: beats.join(" · ") });
+    }
+  };
+
+  /* The lift you're on: the first with an unfinished set. Quick-log falls back to
+     this when you don't name one, which is the fast path — "80x8" and nothing else. */
+  const activeIdx = useMemo(() => {
+    const i = exercises.findIndex((e) => (e.sets || []).some((s) => !s.completed));
+    if (i !== -1) return i;
+    return exercises.length ? exercises.length - 1 : null;
+  }, [exercises]);
+
+  /* Fill the target lift's first unfinished set — appending one if they're all
+     done — complete it, and start the rest timer, exactly as tapping ✓ would.
+     Undo restores the prior state rather than deleting, so a mis-read costs one
+     tap and loses nothing the user had already typed. */
+  const logQuickSet = ({ exIdx, set }) => {
+    const ex = exercises[exIdx];
+    if (!ex) return;
+    const openIdx = ex.sets.findIndex((s) => !s.completed);
+    const appended = openIdx === -1;
+    const setIdx = appended ? ex.sets.length : openIdx;
+    const before = appended ? null : { ...ex.sets[setIdx] };
+    const { uid, rest_timer_seconds: rest } = ex;
+
+    const patch = {
+      kg: set.kg, reps: set.reps, rpe: set.rpe, set_type: set.set_type, completed: true,
+    };
+    setEx(exIdx, (e) => {
+      const sets = appended ? [...e.sets, EMPTY_SET] : [...e.sets];
+      return { ...e, sets: sets.map((s, j) => (j === setIdx ? { ...s, ...patch } : s)) };
+    });
+
+    if (rest > 0) {
+      setRestState((rs) => ({ ...rs, [uid]: { remaining: rest, total: rest, running: true } }));
+    }
+    celebratePR(ex, patch);
+
+    toast({
+      title: "Set logged",
+      description: describeSet({ exerciseName: ex.name, set }),
+      action: (
+        <ToastAction
+          altText="Undo"
+          data-testid={SESSION.quickLogUndo}
+          onClick={() => {
+            setEx(exIdx, (e) => ({
+              ...e,
+              sets: appended
+                ? e.sets.filter((_, j) => j !== setIdx)
+                : e.sets.map((s, j) => (j === setIdx ? before : s)),
+            }));
+            setRestState((rs) => ({ ...rs, [uid]: { ...rs[uid], running: false, remaining: 0 } }));
+          }}
+        >
+          Undo
+        </ToastAction>
+      ),
+    });
+  };
 
   const toggleComplete = (exIdx, setIdx) => {
     const ex = exercises[exIdx];
@@ -416,23 +496,7 @@ export default function WorkoutSession() {
     }
     if (!newVal) return;
 
-    // Live PR check — real-time against stored records
-    if (settings?.live_pr_notification_enabled !== false && s.set_type !== "warmup") {
-      const rec = recordsRef.current[ex.exercise_id] || {};
-      const kg = Number(s.kg) || 0;
-      const reps = Number(s.reps) || 0;
-      const dur = Number(s.duration_seconds) || 0;
-      const dist = Number(s.distance_m) || 0;
-      const beats = [];
-      if (kg && kg > (rec.weight?.value || 0)) beats.push(`${kg} kg — heaviest weight`);
-      if (kg && reps && kg * reps > (rec.volume?.value || 0)) beats.push(`${(kg * reps).toFixed(0)} kg set volume`);
-      if (dur && dur > (rec.duration?.value || 0)) beats.push("longest duration");
-      if (dist && dist > (rec.distance?.value || 0)) beats.push(`${dist} m — longest distance`);
-      if (beats.length && Object.keys(rec).length) {
-        try { navigator.vibrate?.(200); } catch { /* ignore */ }
-        toast({ title: `🏆 New PR — ${ex.name}`, description: beats.join(" · ") });
-      }
-    }
+    celebratePR(ex, s);
 
     // Smart superset scrolling — jump to the next exercise in the same group
     if (settings?.smart_superset_scrolling !== false && ex.superset_group_id) {
@@ -732,6 +796,9 @@ export default function WorkoutSession() {
           <StatPill testId={SESSION.volume} label="Volume" value={`${stats.volume.toFixed(0)} kg`} />
           <StatPill testId={SESSION.setsCount} label="Sets" value={stats.sets} />
         </div>
+        {exercises.length > 0 && (
+          <QuickLog exercises={exercises} defaultIdx={activeIdx} onLog={logQuickSet} />
+        )}
       </div>
 
       {/* Exercises */}

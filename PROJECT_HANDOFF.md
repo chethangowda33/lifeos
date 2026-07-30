@@ -5,9 +5,12 @@
 
 ## 0. Start here
 
-**State:** deployed, live, and healthy. Backend **140 tests**, frontend **58 tests**, both green.
-Everything through session 8 is pushed and deployed. **Session 9 (reports, achievements,
-challenges) is committed but NOT pushed — the user has not been asked yet.**
+**State:** deployed, live, and healthy. Backend **140 tests**, frontend **105 tests**, both green.
+Everything through session 8 is pushed and deployed. **Sessions 9-10 (reports, achievements,
+challenges, quick-log) are committed but NOT pushed.**
+
+**`ROADMAP.md` is new and is the queue** — what's next, in order, with the free/blocked items
+called out. Read it before picking up work. This file stays the chronological log.
 
 **Three things are waiting on the USER, not on code** — none of them are bugs:
 1. **Push cron.** Web push works and has been proven on a real iPhone, but reminders only
@@ -181,6 +184,32 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 - Verified: 11 new backend tests incl. the full earn → new → seen → delete → retract lifecycle;
   browser click-through of the same lifecycle on real data (2 badges lit up, chip cleared,
   both retracted on delete); LoadError + retry in place; 375px clean, 0 console errors.
+
+**SESSION 10 (2026-07-31) — quick-log shipped + `ROADMAP.md` created. See `FEATURES.md` §25.**
+- **`ROADMAP.md`** is the new queue: Phase 0 is the free, user-side work everything else
+  depends on (steps sync, push cron, tap Share, push the commits), then a ranked build list.
+- **Quick-log** — type or say `bench 80 by 8 rpe 8` in the live session's sticky header.
+  `features/workout/lib/parseSetEntry.js` (pure, 47 tests) + `session/QuickLog.jsx`.
+- **The parse is LOCAL and must stay that way.** A gym has no signal and you're mid-set — an
+  API round-trip on the common path (`80x8`) would be the wrong architecture. An LLM fallback
+  is for phrasings the grammar can't reach, never the default.
+- **Voice is the browser's own recogniser** — on-device, no upload, no API cost, mic hidden
+  where unsupported. Speech quirks are handled *in the parser*: "×" transcribes as **"by"**,
+  and numbers come back as words (`eighty by eight`).
+- **Undo, not confirm** — a confirm costs a tap in the moment being optimised; undo restores
+  the prior set rather than deleting.
+- **Guard rails that matter:** `@`/`rpe` only (a bare "at" means weight); weight >1000 kg and
+  reps >500 refused; an unmatched exercise name errors rather than logging onto whatever is in
+  focus; `lbs` rejected rather than stored as kg.
+- **`celebratePR()` extracted** from `toggleComplete` and shared, so a PR logged by voice
+  celebrates like a tapped one. Quick-log starts the rest timer too — the paths match.
+- Verified live on two deliberately ambiguous lifts: volume moved 400 → 1040 kg exactly, undo
+  restored it, name-routing beat focus, append-when-full worked, bodyweight and warm-up
+  parsed, refusals changed nothing. 105 frontend tests green, build clean.
+- ⚠️ **Surfaced a pre-existing mobile bug, not fixed here:** the *rest timer* row
+  (`−15 / 00:42 / +15 / skip`) overflows ~12px past the right edge at 375px. It only shows
+  while a timer runs, which is why earlier mobile passes missed it. Filed separately.
+- Backend untouched this session — pytest not re-run (nothing to regress).
 
 **SESSION 9c (2026-07-30) — challenges shipped. See `FEATURES.md` §24.**
 - **New route `/challenges`** (nav item after Achievements). Four templates (75 Hard, 30-Day
