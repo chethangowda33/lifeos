@@ -520,10 +520,80 @@ habit create→count→delete, body-metric log + ceiling rejection with a readab
 
 **Backend suite 66 → 85.** The offline queue was left untouched by request.
 
-## 21. Still not covered
+## 21. Progress as an analytics view (2026-07-30, session 8)
 
-- **Push has not delivered to a real browser endpoint** — the dispatch path, auth, pruning and
-  idempotency are all tested, but an actual notification arriving on a device needs the keys
-  deployed and a real subscription.
-- **Prod was never touched** — everything ran against local Mongo.
-- **Interval/EMOM timer** and **share-workout image** were not click-tested.
+`features/progress/analytics.js` (pure, 22 unit tests) + `charts.jsx`; `Progress.jsx` consumes
+them. The old inline `weeklyVolume` / `VolumeTrend` path is gone.
+
+### Structure
+**One filter row scopes the entire page** — 4W / 12W / 6M / 1Y / All, plus a Charts/Table
+switch. Per-chart filters are an anti-pattern: every number on the page must describe the
+same slice. Bucket width follows the range (weeks ≤ ~12, months beyond), so "consistency"
+relabels itself between *weeks trained* and *months trained*.
+
+### The five charts, and why each form
+
+| Chart | Job | Form |
+|---|---|---|
+| Training volume | change over time | area |
+| Training frequency | magnitude over time | bars |
+| Strength progression | change over time, one lift | line + picker |
+| Volume by muscle | compare magnitude | ranked bars |
+| Time under the bar | magnitude over time | bars |
+
+**Every chart is a single series in `hsl(var(--maroon))`.** That is the load-bearing decision:
+one series means no categorical palette, so the user's themeable accent and dark mode flow
+through with nothing to keep in sync. Muscle groups are *nominal*, so every bar is the same
+colour — shading them by size would double-encode the length the bar already shows. Strength
+uses the **emphasis** form (one exercise at a time) rather than several coloured lines.
+
+⚠️ **Adding a multi-hue palette here means validating it for colour-blindness first.** The
+current design avoids that problem rather than solving it.
+
+### Two KPI rows
+Range totals, then the derived numbers a report is actually read for: average volume,
+duration and sets per session, and **consistency = share of buckets containing ≥1 session** —
+a fairer read of showing up than a raw count.
+
+### The table view is not decoration
+It is the reason tooltips are permitted: a tooltip must never be the only way to read a
+value. Any chart added here needs its values reachable as text too.
+
+### Two bugs found by testing rather than reading
+- **Duplicate x-labels.** Training a lift twice in a day produced several points sharing one
+  label ("Jul 2, Jul 2, Jul 2") — it reads as a broken axis. `strengthSeries` now groups **by
+  day**, taking the day's best *working* set (warm-ups would understate the day). Two unit
+  tests guard it, confirmed to fail against a deliberately reverted implementation.
+- **A silent under-report.** `GET /workouts` caps at **200** sessions, so "All" would quietly
+  show wrong totals for a long history. When the cap is in play the headline falls back to
+  the server's own `/workouts/stats` aggregate.
+
+### Verified
+Mark specs checked **in the DOM**, not assumed: bars exactly 24px with 4px rounded tops square
+at the baseline, 2px round-capped lines, r=4 dots with a 2px surface ring, solid hairline grid,
+axis text in muted ink. Range switching, the exercise picker, the table view and the empty
+states were each exercised against real history, and the totals reconcile
+(4,580 + 1,915 = 6,495 kg; 27m + 1h10m = 1h37m). 375px and desktop: charts size to their card,
+no horizontal scroll, no console errors.
+
+**Chart animation is off on purpose** — deterministic render, and it removes a class of
+"chart is blank" failures.
+
+## 22. Still not covered
+
+Accurate as of session 8. Earlier entries here were superseded — push **has** since been
+delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is
+correct (full work→rest→round trace verified).
+
+- **The share-workout PNG has never been confirmed to generate.** The permanent "Creating
+  image…" hang is fixed and a 15s timeout now recovers with a toast, but whether a valid image
+  comes out could not be settled in a headless pane. **One tap on a real device answers it.**
+- **Push is deployed but dormant** — it needs an external cron POSTing `/api/push/dispatch`.
+  Delivery itself is proven; the schedule is not wired.
+- **Health sync is blocked on the phone, not the server** — pushing 450 steps through with the
+  user's own token stored correctly. `Find Health Samples` returns empty on their device.
+- **Chart hover and live-resize re-measurement** (§21) are unverifiable in a non-compositing
+  pane; a control test against an untouched chart confirmed both are environment-only.
+- **The live workout session's deep interactions** beyond what §18 covers — long multi-exercise
+  sessions, supersets under load, rest-timer behaviour across backgrounding — only real gym
+  use will exercise these.

@@ -1,6 +1,30 @@
-# LifeOS — Handoff (current as of 2026-07-16)
+# LifeOS — Handoff (current as of 2026-07-30)
 
 > Paste this whole file at the start of a new chat. It is complete context — don't re-read old chats.
+> **Read §0 first** — it is the only part you need before doing anything.
+
+## 0. Start here
+
+**State:** deployed, live, and healthy. Backend **85 tests**, frontend **22 tests**, both green.
+Everything through session 8 is pushed and deployed.
+
+**Three things are waiting on the USER, not on code** — none of them are bugs:
+1. **Push cron.** Web push works and has been proven on a real iPhone, but reminders only
+   fire when something POSTs `/api/push/dispatch` with header `X-Dispatch-Secret`. Set up
+   cron-job.org (every 15 min) or the feature stays dormant. Keys are already on Render.
+2. **Tap Share** after a workout on a real phone. The permanent hang is fixed; whether the
+   PNG actually generates could not be settled in a headless pane. One tap answers it.
+3. **Health sync** is blocked *inside Shortcuts on the phone*, not on the server — pushing
+   450 steps through with the user's own token stored fine. Next diagnostic: add **Quick
+   Look** after `Find Health Samples` and read the number.
+
+**Highest-value remaining work** (nothing is urgent): weekly/monthly AI reports,
+achievements/challenges, and the APK (all prep deployed; remaining steps are manual).
+The offline queue is deliberately **parked** — the user asked to hold it.
+
+**The honest recommendation, unchanged for several sessions: use the app in a real gym
+session.** The data layer is audited, every page has been clicked, and the bugs left are
+the kind that only surface mid-set.
 
 ## 1. What LifeOS is
 Personal life-tracking app for me (chethan), going multi-user (me + a friend, invite-only). Started as a Hevy-style workout tracker with an AI progressive-overload layer; now also has habits, sleep, an AI coach, progress analytics, an admin panel, and a health-sync ingest layer. **It is deployed and LIVE.**
@@ -11,8 +35,15 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **DB:** Mongo in Docker container `lifeos-mongo`. Start: ensure Docker Desktop running, then `docker start lifeos-mongo`. Quirk: sometimes starts without binding host port 27017 right after Docker boots → `docker restart lifeos-mongo` fixes it.
 - **Run backend:** `cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8001` (kill old :8001 process first).
 - **Run frontend:** CRA dev server on :3000 (`frontend/.env` has `REACT_APP_BACKEND_URL=http://localhost:8001`).
-- **Test login:** `cg3@lifeos.com` / `test1234` (admin).
-- **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio` → **39 passing**.
+- **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
+  `chethangowda9@gmail.com` / `cg123456`.
+- **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
+  → **85 passing**. They hit a LIVE backend on :8001, so start it first or every test fails
+  on connection-refused (that is not a regression — check the error before believing it).
+- **Frontend tests:** `cd frontend && CI=true npx craco test --watchAll=false` → **22 passing**
+  (pure analytics functions in `features/progress/`).
+- **Build gate before any push:** `cd frontend && CI=true npx craco build` — Vercel builds with
+  `CI=true`, so an ESLint warning fails the deploy.
 - **npm installs:** always use `--legacy-peer-deps` (pre-existing react-day-picker/date-fns@4 peer conflict).
 
 ## 3. Deployment (LIVE)
@@ -105,6 +136,39 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 8 (2026-07-30) — Progress rebuilt as a full analytics view. See `FEATURES.md` §21.**
+- **New:** `features/progress/analytics.js` (pure functions, 22 unit tests) + `charts.jsx`.
+  `Progress.jsx` consumes them; the old inline `weeklyVolume`/`VolumeTrend` path is replaced.
+- **One filter row scopes the whole page** — 4W/12W/6M/1Y/All + a Charts/Table switch. Never
+  add per-chart filters; every number on the page must describe the same slice.
+- **Bucket width follows the range**: weeks ≤ ~12, months beyond (a year as 52 weekly columns
+  is noise). `bucketMode()` owns this — consistency is "share of buckets with ≥1 session", so
+  its label changes between "weeks trained" and "months trained".
+- **Five charts, all SINGLE-series in `hsl(var(--maroon))`** — deliberate: one series means no
+  categorical palette, so the user's themeable accent and dark mode flow through untouched.
+  **Do not add a multi-hue palette here without validating it for colour-blindness.**
+  Muscle groups are nominal → every bar the same colour (shading by size double-encodes the
+  length the bar already shows). Strength uses the *emphasis* form: one exercise at a time.
+- **Table view is not optional decoration** — it is the reason tooltips are allowed to exist.
+  Any new chart needs its values reachable as text too.
+- **Two bugs found by testing, not reading:**
+  - Training a lift twice in a day produced several points sharing one x-label ("Jul 2, Jul 2,
+    Jul 2") — reads as a broken axis. `strengthSeries` now groups **by day**, taking the day's
+    best *working* set. Two unit tests guard this; they were confirmed to fail against a
+    deliberately reverted implementation.
+  - `GET /workouts` caps at **200** sessions, so "All" would silently under-report a long
+    history. When the cap is in play the headline falls back to `/workouts/stats`.
+- **Mark specs were verified in the DOM**, not assumed: bars exactly 24px with 4px rounded tops
+  square at the baseline, 2px round-capped lines, r=4 dots ringed 2px in the surface colour,
+  solid hairline grid, axis text in muted ink (never the series colour).
+- **Chart animation is off on purpose** (`isAnimationActive={false}`) — deterministic render,
+  and it removes a class of "chart is blank" failures.
+- **Could NOT be verified in this environment** (both confirmed environment-only via a control
+  test against an untouched chart): chart **hover/tooltips** (Recharts uses React synthetic
+  events; the pane does not composite) and **live window-resize re-measurement** (ResizeObserver
+  callbacks are delivered during the rendering steps, which a hidden page skips). Charts size
+  correctly **on mount** at both 375px and desktop, with no horizontal scroll.
 
 **SESSION 7 (2026-07-29) — systematic polish pass. Suite 66 → 85.**
 - **A failed load no longer looks like an empty account.** Habits, Sleep, Progress, Body
