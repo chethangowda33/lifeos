@@ -17,7 +17,30 @@ export const NAV = {
   itemProgress: 'nav-item-progress',
   itemReports: 'nav-item-reports',
   itemAchievements: 'nav-item-achievements',
+  itemChallenges: 'nav-item-challenges',
   logoutButton: 'nav-logout-button',
+};
+
+export const CHALLENGES = {
+  root: 'challenges-root',
+  active: 'challenges-active',
+  status: 'challenges-status',
+  today: 'challenges-today',
+  grid: 'challenges-grid',
+  history: 'challenges-history',
+  customCard: 'challenges-custom-card',
+  abandonButton: 'challenges-abandon-button',
+  addRuleButton: 'challenges-add-rule-button',
+  confirmButton: 'challenges-confirm-button',
+  nameInput: 'challenges-name-input',
+  daysInput: 'challenges-days-input',
+  strictToggle: 'challenges-strict-toggle',
+  template: (key) => `challenges-template-${key}`,
+  startButton: (key) => `challenges-start-${key}`,
+  ruleToggle: (key) => `challenges-rule-toggle-${key}`,
+  ruleRow: (key) => `challenges-rule-${key}`,
+  ruleEditor: (i) => `challenges-rule-editor-${i}`,
+  dayCell: (day) => `challenges-day-${day}`,
 };
 
 export const ACHIEVEMENTS = {

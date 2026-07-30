@@ -5,9 +5,9 @@
 
 ## 0. Start here
 
-**State:** deployed, live, and healthy. Backend **120 tests**, frontend **46 tests**, both green.
-Everything through session 8 is pushed and deployed. **Session 9 (reports + achievements) is
-committed but NOT pushed — the user has not been asked yet.**
+**State:** deployed, live, and healthy. Backend **140 tests**, frontend **58 tests**, both green.
+Everything through session 8 is pushed and deployed. **Session 9 (reports, achievements,
+challenges) is committed but NOT pushed — the user has not been asked yet.**
 
 **Three things are waiting on the USER, not on code** — none of them are bugs:
 1. **Push cron.** Web push works and has been proven on a real iPhone, but reminders only
@@ -19,10 +19,10 @@ committed but NOT pushed — the user has not been asked yet.**
    450 steps through with the user's own token stored fine. Next diagnostic: add **Quick
    Look** after `Find Health Samples` and read the number.
 
-**Highest-value remaining work** (nothing is urgent): the **challenge** system (75 Hard,
-30-day cut, custom) and the APK (all prep deployed; remaining steps are manual). Weekly/monthly
-AI reports and achievements are **done** (session 9, §7). The offline queue is deliberately
-**parked** — the user asked to hold it.
+**Highest-value remaining work** (nothing is urgent): the **APK** (all prep deployed; remaining
+steps are manual). Reports, achievements and challenges all shipped in session 9 (§7) — that
+clears the roadmap's headline list. The offline queue is deliberately **parked** — the user
+asked to hold it.
 
 **The honest recommendation, unchanged for several sessions: use the app in a real gym
 session.** The data layer is audited, every page has been clicked, and the bugs left are
@@ -181,6 +181,29 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 - Verified: 11 new backend tests incl. the full earn → new → seen → delete → retract lifecycle;
   browser click-through of the same lifecycle on real data (2 badges lit up, chip cleared,
   both retracted on delete); LoadError + retry in place; 375px clean, 0 console errors.
+
+**SESSION 9c (2026-07-30) — challenges shipped. See `FEATURES.md` §24.**
+- **New route `/challenges`** (nav item after Achievements). Four templates (75 Hard, 30-Day
+  Cut, 21-Day Reset, 14-Day Consistency) plus a custom builder. **One challenge at a time.**
+- **A rule names a metric; seven of the eight are read from logged data** (workouts, steps,
+  sleep, calories ceiling, protein, food logged, all-habits-done). Only `manual` is a tick.
+  **Hand-ticking a derived rule returns 400** — if the box can disagree with the data underneath
+  it the challenge means nothing. Keep that boundary.
+- **Strict mode (75 Hard) is derived, not destructive.** Nothing is reset; the current run is
+  measured from the day after the last miss, so the grid keeps every completed day and
+  `restarts` is a fact about the data. Three misses in a row = **one** collapse. **Today can
+  never be a miss** — it counts toward `current_day` but toward `streak` only once met.
+- **Rule keys are assigned server-side** (`r1`…) because they are the join key for manual ticks.
+- Two guards worth keeping: a ceiling rule needs *something* logged before it can pass (an empty
+  food diary is not a day under 2,000 kcal), and `habits_all` fails when no habits exist (0 of 0
+  would be a free tick).
+- Verified: 20 backend tests incl. the full strict-restart maths; browser click-through of a
+  template start with an edited target, the custom builder, a manual tick, a real workout
+  flipping a derived rule, and abandon → history. 75-day grid wraps at 375px, 0 console errors.
+  **Bug found by testing:** `dayGrid` used `toISOString()`, shifting every cell back a day east
+  of UTC — now `lib/localDate`, with a test.
+- **Not included on purpose:** no challenge reminders/push, no sharing, no rest-day allowance
+  (75 Hard has none by definition; a "days off" rule would be the first thing to add if asked).
 
 **SESSION 8 (2026-07-30) — Progress rebuilt as a full analytics view. See `FEATURES.md` §21.**
 - **New:** `features/progress/analytics.js` (pure functions, 22 unit tests) + `charts.jsx`.

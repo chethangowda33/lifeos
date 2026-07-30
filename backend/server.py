@@ -446,6 +446,38 @@ DEFAULT_WORKOUT_SETTINGS: Dict[str, Any] = {
 }
 
 
+class ChallengeRuleIn(BaseModel):
+    label: str = Field(min_length=1, max_length=60)
+    metric: str  # one of CHALLENGE_METRICS
+    target: float = Field(default=1, ge=0, le=100_000)
+
+    model_config = {"extra": "ignore"}
+
+
+class ChallengeIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    description: str = Field(default="", max_length=300)
+    days: int = Field(ge=1, le=365)
+    strict: bool = False  # a missed day restarts the run (the 75 Hard rule)
+    rules: List[ChallengeRuleIn] = Field(min_length=1, max_length=8)
+    start_date: Optional[str] = None  # defaults to the caller's today
+    template: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+    _v_start = field_validator("start_date")(_check_date)
+
+
+class ChallengeLogIn(BaseModel):
+    rule_key: str = Field(min_length=1, max_length=20)
+    done: bool = True
+    date: Optional[str] = None
+
+    model_config = {"extra": "ignore"}
+
+    _v_date = field_validator("date")(_check_date)
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Constants — body metric definitions with ideal ranges
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3616,6 +3648,324 @@ async def mark_achievements_seen(user=Depends(get_current_user)):
     res = await db.achievement_unlocks.update_many(
         {"user_id": str(user["_id"]), "seen": {"$ne": True}}, {"$set": {"seen": True}})
     return {"ok": True, "marked": res.modified_count}
+
+
+# ── CHALLENGES ────────────────────────────────────────────────────────────────
+# A challenge is a run of days with rules that must all be met each day. Wherever
+# the app can already see the answer it checks itself — a workout logged is a
+# workout logged, and asking the user to also tick a box for it is how challenge
+# trackers become a second chore. Only what the app genuinely cannot observe
+# (pages read, a photo taken, water drunk) is a manual tick.
+#
+# `strict` is the 75 Hard rule: miss a day and the run restarts. That is derived
+# too — nothing is reset or deleted, the current run is simply measured from the
+# day after the last miss, so the history stays honest and the restart count is a
+# fact about the data rather than a counter someone has to keep in sync.
+CHALLENGE_METRICS: Dict[str, Dict[str, Any]] = {
+    "workouts": {"label": "Workouts logged", "unit": "sessions", "compare": "min", "source": "workouts"},
+    "steps": {"label": "Steps", "unit": "steps", "compare": "min", "source": "health"},
+    "sleep_hours": {"label": "Sleep", "unit": "h", "compare": "min", "source": "sleep"},
+    "calories_max": {"label": "Calories under", "unit": "kcal", "compare": "max", "source": "intake"},
+    "protein_g": {"label": "Protein", "unit": "g", "compare": "min", "source": "intake"},
+    "intake_logged": {"label": "Food logged", "unit": "entries", "compare": "min", "source": "intake"},
+    "habits_all": {"label": "All habits done", "unit": "habits", "compare": "min", "source": "habits"},
+    "manual": {"label": "Ticked by hand", "unit": "", "compare": "min", "source": "manual"},
+}
+
+CHALLENGE_TEMPLATES: List[Dict[str, Any]] = [
+    {
+        "key": "75_hard", "name": "75 Hard", "days": 75, "strict": True,
+        "description": "Two workouts a day, one of them outdoors. Follow your nutrition. "
+                       "No missed days — slip once and you start again at day 1.",
+        "rules": [
+            {"label": "Two workouts", "metric": "workouts", "target": 2},
+            {"label": "Followed my nutrition", "metric": "intake_logged", "target": 1},
+            {"label": "Drank 4 litres of water", "metric": "manual", "target": 1},
+            {"label": "Read 10 pages", "metric": "manual", "target": 1},
+            {"label": "Progress photo", "metric": "manual", "target": 1},
+        ],
+    },
+    {
+        "key": "30_day_cut", "name": "30-Day Cut", "days": 30, "strict": False,
+        "description": "A month of eating in a deficit while keeping protein and training high.",
+        "rules": [
+            {"label": "Calories under target", "metric": "calories_max", "target": 2000},
+            {"label": "Protein hit", "metric": "protein_g", "target": 150},
+            {"label": "Trained today", "metric": "workouts", "target": 1},
+            {"label": "8,000 steps", "metric": "steps", "target": 8000},
+        ],
+    },
+    {
+        "key": "21_day_reset", "name": "21-Day Reset", "days": 21, "strict": False,
+        "description": "Three weeks of getting the basics right — habits, sleep, movement.",
+        "rules": [
+            {"label": "Every habit done", "metric": "habits_all", "target": 1},
+            {"label": "7 hours of sleep", "metric": "sleep_hours", "target": 7},
+            {"label": "8,000 steps", "metric": "steps", "target": 8000},
+        ],
+    },
+    {
+        "key": "consistency_14", "name": "14-Day Consistency", "days": 14, "strict": False,
+        "description": "Two weeks of showing up. One session, one honest food log, a decent night.",
+        "rules": [
+            {"label": "Trained today", "metric": "workouts", "target": 1},
+            {"label": "Food logged", "metric": "intake_logged", "target": 1},
+            {"label": "7 hours of sleep", "metric": "sleep_hours", "target": 7},
+        ],
+    },
+]
+
+
+def _date_range(start: str, end: str) -> List[str]:
+    a, b = date.fromisoformat(start), date.fromisoformat(end)
+    return [(a + timedelta(days=i)).isoformat() for i in range((b - a).days + 1)]
+
+
+async def _challenge_daily_data(uid: str, ch: Dict[str, Any], dates: List[str]) -> Dict[str, Dict[str, float]]:
+    """Every metric a rule might ask about, per date, fetched once for the range."""
+    needed = {CHALLENGE_METRICS.get(r["metric"], {}).get("source") for r in ch.get("rules", [])}
+    start, end = dates[0], dates[-1]
+    out: Dict[str, Dict[str, float]] = {d: {} for d in dates}
+
+    if "workouts" in needed:
+        async for w in db.workout_sessions.find(
+            {"user_id": uid, "created_at": {"$gte": f"{start}T00:00:00", "$lt": f"{_next_day(end)}T00:00:00"}},
+            {"created_at": 1},
+        ):
+            d = (w.get("created_at") or "")[:10]
+            if d in out:
+                out[d]["workouts"] = out[d].get("workouts", 0) + 1
+
+    if "health" in needed:
+        for h in await db.health_daily.find({"user_id": uid, "date": {"$gte": start, "$lte": end}}).to_list(400):
+            if h.get("date") in out:
+                out[h["date"]]["steps"] = h.get("steps") or 0
+
+    if "sleep" in needed:
+        for s in await db.sleep_logs.find({"user_id": uid, "date": {"$gte": start, "$lte": end}}).to_list(400):
+            if s.get("date") in out:
+                out[s["date"]]["sleep_hours"] = s.get("hours") or 0
+
+    if "intake" in needed:
+        from intake import _sum  # deferred: intake is wired in at the bottom of this file
+        rows = await db.intake_entries.find({"user_id": uid, "date": {"$gte": start, "$lte": end}}).to_list(5000)
+        by_date: Dict[str, List[Dict[str, Any]]] = {}
+        for e in rows:
+            by_date.setdefault(e.get("date", ""), []).append(e)
+        for d, entries in by_date.items():
+            if d not in out:
+                continue
+            totals = _sum(entries)
+            out[d].update({
+                "intake_logged": len(entries),
+                "calories_max": totals.get("calories", 0),
+                "protein_g": totals.get("protein_g", 0),
+            })
+
+    if "habits" in needed:
+        habits = await db.habits.find({"user_id": uid, "archived": {"$ne": True}}).to_list(100)
+        logs = await db.habit_logs.find({"user_id": uid, "date": {"$gte": start, "$lte": end}}).to_list(5000)
+        done_count: Dict[str, int] = {}
+        by_id = {str(h["_id"]): h for h in habits}
+        for lg in logs:
+            h = by_id.get(lg.get("habit_id", ""))
+            if not h or lg.get("date") not in out:
+                continue
+            ok = ((lg.get("value") or 0) >= (h.get("target") or 1)) if h.get("type") == "count" else bool(lg.get("completed"))
+            if ok:
+                done_count[lg["date"]] = done_count.get(lg["date"], 0) + 1
+        for d in dates:
+            # With no habits set up the rule can't be satisfied — reporting 0 of 0
+            # as "done" would hand out a free tick every day.
+            out[d]["habits_all"] = 1 if habits and done_count.get(d, 0) >= len(habits) else 0
+
+    if "manual" in needed:
+        for lg in await db.challenge_logs.find(
+            {"user_id": uid, "challenge_id": str(ch["_id"]), "date": {"$gte": start, "$lte": end}}
+        ).to_list(500):
+            if lg.get("date") in out:
+                for k, v in (lg.get("values") or {}).items():
+                    out[lg["date"]][f"manual:{k}"] = 1 if v else 0
+
+    return out
+
+
+def _rule_state(rule: Dict[str, Any], day: Dict[str, float]) -> Dict[str, Any]:
+    metric = rule["metric"]
+    target = rule.get("target") or 1
+    value = day.get(f"manual:{rule['key']}", 0) if metric == "manual" else (day.get(metric) or 0)
+    compare = CHALLENGE_METRICS.get(metric, {}).get("compare", "min")
+    # A "stay under" rule is only met once there is something to judge — an
+    # untouched food diary is not a day under 2,000 kcal.
+    met = (value <= target and day.get("intake_logged", 0) > 0) if compare == "max" else value >= target
+    return {**rule, "value": round(value, 1), "met": bool(met), "compare": compare,
+            "unit": CHALLENGE_METRICS.get(metric, {}).get("unit", "")}
+
+
+async def _challenge_progress(user: Dict[str, Any], ch: Dict[str, Any], today: str) -> Dict[str, Any]:
+    uid = str(user["_id"])
+    start = ch["start_date"]
+    total = int(ch.get("days") or 1)
+    last = (date.fromisoformat(start) + timedelta(days=total - 1)).isoformat()
+    if today < start:
+        dates: List[str] = []
+    else:
+        dates = _date_range(start, min(today, last))
+
+    daily = await _challenge_daily_data(uid, ch, dates) if dates else {}
+    day_states, today_rules = [], []
+    for d in dates:
+        states = [_rule_state(r, daily.get(d, {})) for r in ch["rules"]]
+        day_states.append({"date": d, "complete": all(s["met"] for s in states),
+                           "met": sum(1 for s in states if s["met"]), "of": len(states)})
+        if d == today:
+            today_rules = states
+
+    done = sum(1 for d in day_states if d["complete"])
+    # Only a day that is over can be a miss — today is still winnable.
+    past = [d for d in day_states if d["date"] < today]
+    misses = [d["date"] for d in past if not d["complete"]]
+
+    # "Restarts" is how many times a run that had got going was broken — three
+    # missed days in a row is one collapse, not three.
+    restarts, streak_so_far = 0, 0
+    for d in past:
+        if d["complete"]:
+            streak_so_far += 1
+        else:
+            restarts += 1 if streak_so_far else 0
+            streak_so_far = 0
+
+    if ch.get("strict") and misses:
+        run_start = (date.fromisoformat(misses[-1]) + timedelta(days=1)).isoformat()
+        run = [d for d in day_states if d["date"] >= run_start]
+        # Today is the day you are ON, not a day you have banked — it counts
+        # toward current_day but never toward the completed streak.
+        streak = sum(1 for d in run if d["complete"])
+        current_day = len(run)
+    else:
+        run_start = start
+        streak = done
+        current_day = len(dates)
+
+    completed = (streak >= total) if ch.get("strict") else (done >= total)
+    if ch.get("abandoned_at"):
+        status = "abandoned"
+    elif completed:
+        status = "completed"
+    elif today > last:
+        status = "ended"
+    elif today < start:
+        status = "upcoming"
+    else:
+        status = "active"
+
+    return {
+        "id": str(ch["_id"]), "name": ch["name"], "description": ch.get("description", ""),
+        "days": total, "strict": bool(ch.get("strict")), "template": ch.get("template"),
+        "rules": ch["rules"], "start_date": start, "end_date": last,
+        "status": status, "current_day": min(current_day, total), "days_done": done,
+        "streak": streak, "restarts": restarts if ch.get("strict") else 0,
+        "missed_days": misses, "run_start": run_start,
+        "today_rules": today_rules, "day_states": day_states,
+        "percent": round(100 * (streak if ch.get("strict") else done) / total),
+    }
+
+
+def _clean_rules(rules: List[ChallengeRuleIn]) -> List[Dict[str, Any]]:
+    out = []
+    for i, r in enumerate(rules):
+        if r.metric not in CHALLENGE_METRICS:
+            raise HTTPException(400, f"Unknown rule metric '{r.metric}'")
+        # Keys are assigned here, never taken from the client: they are the join
+        # key for manual ticks, so a duplicate would tie two rules together.
+        out.append({"key": f"r{i + 1}", "label": r.label.strip(),
+                    "metric": r.metric, "target": r.target})
+    return out
+
+
+@api.get("/challenges/templates")
+async def challenge_templates():
+    return {"templates": CHALLENGE_TEMPLATES, "metrics": CHALLENGE_METRICS}
+
+
+@api.get("/challenges")
+async def list_challenges(today: Optional[str] = None, user=Depends(get_current_user)):
+    try:
+        day = date.fromisoformat(today).isoformat() if today else datetime.now(timezone.utc).date().isoformat()
+    except ValueError:
+        raise HTTPException(400, "today must be YYYY-MM-DD")
+    docs = await db.challenges.find({"user_id": str(user["_id"])}).sort("created_at", -1).to_list(50)
+    out = [await _challenge_progress(user, ch, day) for ch in docs]
+    active = next((c for c in out if c["status"] in ("active", "upcoming")), None)
+    return {"active": active, "challenges": out, "today": day}
+
+
+@api.post("/challenges")
+async def create_challenge(payload: ChallengeIn, user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    today = datetime.now(timezone.utc).date().isoformat()
+    existing = await db.challenges.find({"user_id": uid, "abandoned_at": None}).to_list(50)
+    for ch in existing:
+        prog = await _challenge_progress(user, ch, payload.start_date or today)
+        # One at a time on purpose: two challenges with conflicting daily rules
+        # is a way to fail both.
+        if prog["status"] in ("active", "upcoming"):
+            raise HTTPException(400, f"'{ch['name']}' is still running — finish or abandon it first")
+
+    doc = {
+        "user_id": uid, "name": payload.name.strip(), "description": payload.description.strip(),
+        "days": payload.days, "strict": payload.strict, "rules": _clean_rules(payload.rules),
+        "start_date": payload.start_date or today, "template": payload.template,
+        "abandoned_at": None, "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    res = await db.challenges.insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return await _challenge_progress(user, doc, today)
+
+
+@api.post("/challenges/{challenge_id}/log")
+async def log_challenge_rule(challenge_id: str, payload: ChallengeLogIn, user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    ch = await db.challenges.find_one({"_id": _oid(challenge_id, "Challenge not found"), "user_id": uid})
+    if not ch:
+        raise HTTPException(404, "Challenge not found")
+    rule = next((r for r in ch["rules"] if r["key"] == payload.rule_key), None)
+    if not rule:
+        raise HTTPException(404, "Rule not found")
+    if rule["metric"] != "manual":
+        # Ticking a derived rule by hand would let the box disagree with the data
+        # underneath it, which is exactly the thing this design avoids.
+        raise HTTPException(400, f"'{rule['label']}' is checked from your logged data, not by hand")
+
+    day = payload.date or datetime.now(timezone.utc).date().isoformat()
+    if not (ch["start_date"] <= day <= (date.fromisoformat(ch["start_date"]) + timedelta(days=ch["days"] - 1)).isoformat()):
+        raise HTTPException(400, "That date is outside the challenge")
+    await db.challenge_logs.update_one(
+        {"user_id": uid, "challenge_id": challenge_id, "date": day},
+        {"$set": {f"values.{payload.rule_key}": payload.done}},
+        upsert=True,
+    )
+    return await _challenge_progress(user, ch, datetime.now(timezone.utc).date().isoformat())
+
+
+@api.delete("/challenges/{challenge_id}")
+async def abandon_challenge(challenge_id: str, purge: bool = False, user=Depends(get_current_user)):
+    """Abandon a challenge (kept in history), or `purge=true` to erase it."""
+    uid = str(user["_id"])
+    oid = _oid(challenge_id, "Challenge not found")
+    if purge:
+        res = await db.challenges.delete_one({"_id": oid, "user_id": uid})
+        if not res.deleted_count:
+            raise HTTPException(404, "Challenge not found")
+        await db.challenge_logs.delete_many({"user_id": uid, "challenge_id": challenge_id})
+        return {"ok": True, "purged": True}
+    res = await db.challenges.update_one(
+        {"_id": oid, "user_id": uid},
+        {"$set": {"abandoned_at": datetime.now(timezone.utc).isoformat()}})
+    if not res.matched_count:
+        raise HTTPException(404, "Challenge not found")
+    return {"ok": True, "purged": False}
 
 
 # ── INTAKE (calories / macros / micros — self-contained, see intake.py) ───────

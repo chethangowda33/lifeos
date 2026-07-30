@@ -680,9 +680,68 @@ applied before it could happen again: derived state must never outlive its sourc
 - `craco.config.js` gained a Jest `moduleNameMapper` for `@/` — webpack had the alias and Jest
   didn't, so a module importing `@/...` built fine and failed only under test.
 
-## 24. Still not covered
+## 24. Challenges (2026-07-30, session 9)
 
-Accurate as of session 9. Earlier entries here were superseded — push **has** since been
+`/challenges` — a run of days with rules that all have to be met. Backend `GET /challenges`,
+`GET /challenges/templates`, `POST /challenges`, `POST /challenges/{id}/log`,
+`DELETE /challenges/{id}[?purge=true]`; frontend `pages/Challenges.jsx` + pure helpers in
+`features/challenges/challenges.js` (12 unit tests).
+
+### The app checks what it can already see
+A rule names a metric. Seven of the eight are read straight from logged data — workouts, steps,
+sleep, calories (a ceiling), protein, food logged, all-habits-done. Only `manual` is a tick, for
+the things the app genuinely cannot observe: pages read, a photo taken, water drunk.
+
+**Hand-ticking a derived rule is refused with a 400.** If the box could disagree with the data
+underneath it, the challenge stops meaning anything — and "log your workout, then also tick that
+you worked out" is how a tracker turns into a chore.
+
+Two consequences worth knowing: a *ceiling* rule (calories under 2,000) is only met once
+something has been logged — an untouched food diary is not a day under target — and
+`habits_all` can't be satisfied with no habits set up, because 0 of 0 would hand out a free
+tick every day.
+
+### Strict mode is derived, not destructive
+`strict` is the 75 Hard rule: miss a day and you start again. Nothing is reset or deleted — the
+current run is simply measured from the day after the last miss. So the day grid keeps every day
+you did complete, `days_done` still counts them, and `restarts` is a fact about the data rather
+than a counter someone has to keep in sync. Three missed days in a row is **one** collapse, not
+three, and a run that never got going was never broken.
+
+**Today is never a miss.** Only days strictly before today can fail; today is still winnable.
+It counts toward `current_day` ("Day 12 of 75" — the day you are *on*) but toward `streak` only
+once its rules are actually met.
+
+### Other judgement calls
+- **One challenge at a time** (400 if another is active or upcoming). Two sets of conflicting
+  daily rules is a way to fail both.
+- **Rule keys are assigned server-side** (`r1`, `r2`…), never taken from the client — they are
+  the join key for manual ticks, so a duplicate would tie two rules together.
+- **Template targets are editable before you commit.** A fixed 2,000 kcal is useless to half the
+  people who would start a cut; the start dialog is the same component as the custom builder.
+- **Abandon keeps it in history; `?purge=true` erases it** (and its logs).
+- **The grid is padded to the full duration** — a 75-day challenge showing 3 cells on day 3
+  hides the size of what was committed to.
+
+### Verified
+- Backend **20 tests**: template integrity (every template rule uses a known metric; 75 Hard is
+  75 days and strict), validation (unknown metric, no rules, second challenge, bad id → 404),
+  the manual/derived boundary in both directions, ticks outside the run refused, and a 5-day
+  strict run with days -4..-2 missed asserting `run_start`, `current_day`, `streak`, `restarts`,
+  that an unfinished today is neither banked nor a miss, and that history survives the restart.
+- Clicked in the browser: started 30-Day Cut with an **edited** calorie target, built a custom
+  challenge from empty (add rule → pick metric → the target box appears only for numeric rules),
+  ticked a manual rule (`aria-pressed` flips, day cell reads 1/2 rules), logged a real workout
+  and watched the derived rule turn 0/1 → 1/1 and the day flip to done, abandoned into history.
+  A 75-day grid wraps to 7 rows at 375px with no horizontal scroll; 0 console errors. All probe
+  challenges, logs, workouts and exercises purged afterwards — DB confirmed clean.
+- **Found by testing, not reading:** `dayGrid` built its dates with `toISOString()`, which
+  converts to UTC first — east of Greenwich every cell in the grid shifted back a day. It now
+  uses `lib/localDate`, and a unit test covers it.
+
+## 25. Still not covered
+
+Accurate as of session 9 (challenges). Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is
 correct (full work→rest→round trace verified).
 
