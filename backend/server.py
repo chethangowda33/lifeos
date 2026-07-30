@@ -22,7 +22,7 @@ import hashlib
 import secrets
 import logging
 from collections import Counter
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import bcrypt
@@ -3091,6 +3091,312 @@ async def coach_recap(user=Depends(get_current_user)):
         logger.exception("coach recap failed")
         raise HTTPException(502, f"AI request failed: {e}")
     return {"configured": True, "provider": provider, "recap": recap}
+
+
+# ── PERIOD REPORTS (weekly / monthly) ─────────────────────────────────────────
+# A report is DETERMINISTIC first: every figure below is computed from logged
+# data and returned on its own, so the page reads fine with the AI switched off.
+# The narrative is a layer on top and is handed exactly these numbers — never the
+# free-form coach context — so it cannot cite a figure the user can't also read
+# as text. Narratives are cached per period (an LLM call per page view would be
+# both slow and pointless); `stale` marks one whose numbers have since moved.
+REPORT_PERIODS = ("week", "month")
+
+
+def _next_day(d: str) -> str:
+    return (date.fromisoformat(d) + timedelta(days=1)).isoformat()
+
+
+def _period_bounds(period: str, offset: int, today: Optional[str]) -> Dict[str, Any]:
+    """Inclusive start/end of the week or month `offset` periods back.
+
+    `today` is the CALLER'S local date, for the same reason `/life-score` takes
+    one: habits, sleep and intake are keyed on the user's own calendar day, so
+    deriving the boundary from the server's UTC date puts an IST user in the
+    wrong week between midnight and 05:30."""
+    if period not in REPORT_PERIODS:
+        raise HTTPException(400, "period must be 'week' or 'month'")
+    if not 0 <= offset <= 520:
+        raise HTTPException(400, "offset must be between 0 and 520")
+    try:
+        base = date.fromisoformat(today) if today else datetime.now(timezone.utc).date()
+    except ValueError:
+        raise HTTPException(400, "today must be YYYY-MM-DD")
+
+    if period == "week":
+        start = base - timedelta(days=base.weekday() + 7 * offset)
+        end = start + timedelta(days=6)
+        # No %-d / %#d — that flag differs between Linux (prod) and Windows (dev).
+        label = f"{start.strftime('%b')} {start.day} – {end.strftime('%b')} {end.day}, {end.year}"
+    else:
+        y, m = base.year, base.month - offset
+        while m <= 0:
+            y, m = y - 1, m + 12
+        start = date(y, m, 1)
+        end = date(y + (m == 12), (m % 12) + 1, 1) - timedelta(days=1)
+        label = f"{start.strftime('%B')} {start.year}"
+
+    # A period still running is scored against the days that have actually
+    # happened — 2/7 habit days reads as failure when only 2 days have passed.
+    elapsed = (min(end, base) - start).days + 1 if base >= start else 0
+    return {
+        "period": period, "offset": offset, "label": label,
+        "start": start.isoformat(), "end": end.isoformat(),
+        "days_total": (end - start).days + 1,
+        "days_elapsed": max(0, min((end - start).days + 1, elapsed)),
+        "current": offset == 0,
+    }
+
+
+async def _report_training(uid: str, start: str, end: str) -> Dict[str, Any]:
+    docs = await db.workout_sessions.find({
+        "user_id": uid,
+        "created_at": {"$gte": f"{start}T00:00:00", "$lt": f"{_next_day(end)}T00:00:00"},
+    }).to_list(500)
+
+    ex_ids = {ex["exercise_id"] for d in docs for ex in d.get("exercises", []) if ex.get("exercise_id")}
+    oids = []
+    for eid in ex_ids:
+        try:
+            oids.append(ObjectId(eid))
+        except Exception:
+            continue
+    refs: Dict[str, Dict[str, Any]] = {}
+    async for r in db.exercises.find({"_id": {"$in": oids}}, {"name": 1, "muscle_group": 1}):
+        refs[str(r["_id"])] = r
+
+    per_ex: Dict[str, Dict[str, Any]] = {}
+    muscles: Dict[str, int] = {}
+    days, volume, sets, duration = set(), 0.0, 0, 0
+    for d in docs:
+        days.add((d.get("created_at") or "")[:10])
+        volume += d.get("total_volume_kg") or 0
+        sets += d.get("completed_sets") or 0
+        duration += d.get("duration_seconds") or 0
+        for ex in d.get("exercises", []):
+            ref = refs.get(ex.get("exercise_id") or "", {})
+            name = ref.get("name") or ex.get("name") or "Exercise"
+            mg = ref.get("muscle_group") or "other"
+            slot = per_ex.setdefault(name, {"name": name, "muscle_group": mg,
+                                            "sets": 0, "volume_kg": 0.0, "best_e1rm": 0.0})
+            for s in ex.get("sets", []):
+                if not s.get("completed"):
+                    continue
+                slot["sets"] += 1
+                slot["volume_kg"] += (s.get("kg") or 0) * (s.get("reps") or 0)
+                slot["best_e1rm"] = max(slot["best_e1rm"], s.get("e1rm") or 0)
+                # Hard sets follow the same rule as /workouts/muscle-volume —
+                # warm-ups and RPE<6 count toward volume nowhere else either.
+                rpe = s.get("rpe")
+                if s.get("set_type") == "warmup" or (rpe is not None and rpe < 6):
+                    continue
+                muscles[mg] = muscles.get(mg, 0) + 1
+
+    prs = await db.pr_events.find({
+        "user_id": uid,
+        "created_at": {"$gte": f"{start}T00:00:00", "$lt": f"{_next_day(end)}T00:00:00"},
+    }).sort("created_at", -1).to_list(50)
+
+    top = sorted(per_ex.values(), key=lambda x: -x["volume_kg"])[:5]
+    for t in top:
+        t["volume_kg"] = round(t["volume_kg"], 1)
+        t["best_e1rm"] = round(t["best_e1rm"], 1)
+    return {
+        "workouts": len(docs),
+        "days_trained": len([d for d in days if d]),
+        "volume_kg": round(volume, 1),
+        "sets": sets,
+        "duration_seconds": duration,
+        "top_exercises": top,
+        "muscles": [{"muscle_group": k, "hard_sets": v}
+                    for k, v in sorted(muscles.items(), key=lambda x: -x[1])],
+        "prs": [{"exercise": p.get("exercise_name"), "label": p.get("label") or p.get("pr_type"),
+                 "value": p.get("value"), "date": (p.get("created_at") or "")[:10]} for p in prs[:12]],
+    }
+
+
+async def _report_recovery(uid: str, start: str, end: str) -> Dict[str, Any]:
+    rng = {"$gte": start, "$lte": end}
+    sleep = await db.sleep_logs.find({"user_id": uid, "date": rng}).to_list(200)
+    health = await db.health_daily.find({"user_id": uid, "date": rng}).to_list(200)
+
+    def avg(rows: List[Dict[str, Any]], key: str) -> Optional[float]:
+        vals = [r[key] for r in rows if r.get(key) is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    steps = avg(health, "steps")
+    return {
+        "sleep_nights": len(sleep),
+        "sleep_avg_hours": avg(sleep, "hours"),
+        "sleep_quality": avg(sleep, "quality"),
+        "days_synced": len(health),
+        "steps_avg": int(steps) if steps is not None else None,
+        "resting_hr_avg": avg(health, "resting_hr"),
+        "hrv_avg": avg(health, "hrv"),
+        "active_energy_avg": avg(health, "active_energy"),
+    }
+
+
+async def _report_habits(uid: str, start: str, end: str, days_elapsed: int) -> List[Dict[str, Any]]:
+    habits = await db.habits.find({"user_id": uid, "archived": {"$ne": True}}).to_list(50)
+    if not habits or days_elapsed <= 0:
+        return []
+    logs = await db.habit_logs.find({"user_id": uid, "date": {"$gte": start, "$lte": end}}).to_list(5000)
+    by_habit: Dict[str, List[Dict[str, Any]]] = {}
+    for lg in logs:
+        by_habit.setdefault(lg.get("habit_id", ""), []).append(lg)
+    out = []
+    for h in habits:
+        mine = by_habit.get(str(h["_id"]), [])
+        if h.get("type") == "count":
+            tgt = h.get("target") or 0
+            done = sum(1 for lg in mine if tgt and (lg.get("value") or 0) >= tgt)
+        else:
+            done = sum(1 for lg in mine if lg.get("completed"))
+        out.append({"name": h.get("name"), "emoji": h.get("emoji"), "done": done,
+                    "days": days_elapsed, "pct": round(_pct(done, days_elapsed))})
+    return sorted(out, key=lambda x: -x["pct"])
+
+
+async def _report_nutrition(uid: str, start: str, end: str) -> Optional[Dict[str, Any]]:
+    rows = await db.intake_entries.find(
+        {"user_id": uid, "date": {"$gte": start, "$lte": end}}
+    ).to_list(5000)
+    if not rows:
+        return None
+    from intake import _sum  # deferred: intake is wired in at the bottom of this file
+    by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for e in rows:
+        by_date.setdefault(e.get("date", ""), []).append(e)
+    totals = [_sum(v) for v in by_date.values()]
+    n = len(totals)
+    return {
+        "days_logged": n,
+        "avg_calories": round(sum(t.get("calories", 0) for t in totals) / n),
+        "avg_protein_g": round(sum(t.get("protein_g", 0) for t in totals) / n),
+    }
+
+
+def _report_signature(training: Dict[str, Any], recovery: Dict[str, Any]) -> str:
+    """Short hash of the headline numbers — a cached narrative that no longer
+    matches these is shown as stale rather than silently misreporting."""
+    payload = json.dumps([
+        training["workouts"], training["volume_kg"], training["sets"],
+        training["duration_seconds"], len(training["prs"]),
+        recovery["sleep_nights"], recovery["sleep_avg_hours"], recovery["days_synced"],
+    ], sort_keys=True)
+    return hashlib.sha1(payload.encode()).hexdigest()[:12]
+
+
+async def _build_report(user: Dict[str, Any], period: str, offset: int,
+                        today: Optional[str]) -> Dict[str, Any]:
+    uid = str(user["_id"])
+    b = _period_bounds(period, offset, today)
+    prev_b = _period_bounds(period, offset + 1, today)
+
+    training = await _report_training(uid, b["start"], b["end"])
+    prev_training = await _report_training(uid, prev_b["start"], prev_b["end"])
+    recovery = await _report_recovery(uid, b["start"], b["end"])
+    habits = await _report_habits(uid, b["start"], b["end"], b["days_elapsed"])
+    nutrition = await _report_nutrition(uid, b["start"], b["end"])
+
+    settings = {**DEFAULT_WORKOUT_SETTINGS, **(user.get("workout_settings") or {})}
+    weekly_target = max(1, int(settings.get("weekly_workout_target") or 4))
+    weeks = b["days_total"] / 7
+    signature = _report_signature(training, recovery)
+
+    cached = await db.reports.find_one({"user_id": uid, "period": period, "start": b["start"]})
+    narrative = None
+    if cached:
+        narrative = {
+            "text": cached.get("text", ""),
+            "generated_at": cached.get("created_at"),
+            "provider": cached.get("provider"),
+            "stale": cached.get("signature") != signature,
+        }
+
+    return {
+        **b,
+        "workout_target": round(weekly_target * weeks),
+        "training": training,
+        "previous": {
+            "label": prev_b["label"], "workouts": prev_training["workouts"],
+            "volume_kg": prev_training["volume_kg"], "sets": prev_training["sets"],
+            "duration_seconds": prev_training["duration_seconds"],
+        },
+        "recovery": recovery,
+        "habits": habits,
+        "nutrition": nutrition,
+        "has_data": bool(training["workouts"] or recovery["sleep_nights"]
+                         or recovery["days_synced"] or habits or nutrition),
+        "signature": signature,
+        "narrative": narrative,
+        "ai_configured": bool(coach_provider()),
+    }
+
+
+REPORT_SYSTEM = (
+    "You are CG's LifeOS AI Coach writing the user's {period}ly report for {label}.\n"
+    "You are given ONLY the computed numbers below — every one of them is also shown to the "
+    "user on the same page. Use them; never invent a figure, an exercise or a study.\n\n"
+    "Write:\n"
+    "- One opening line on how the {period} went.\n"
+    "- **Wins** — sessions, volume, PRs, habit streaks. Bold the real numbers.\n"
+    "- **Watch** — undertrained muscles, a drop vs the previous {period}, short sleep, "
+    "slipping habits. Be honest but never scolding.\n"
+    "- **Next {period}** — exactly one concrete focus.\n"
+    "Compare against the previous {period} when the numbers make it meaningful. "
+    "Keep it under {words} words, short bullets, second person. "
+    "If there is little data, say so warmly and give one first step."
+)
+
+
+@api.get("/reports")
+async def get_report(period: str = "week", offset: int = 0, today: Optional[str] = None,
+                     user=Depends(get_current_user)):
+    """Computed summary for one week/month, plus the cached AI narrative if any."""
+    return await _build_report(user, period, offset, today)
+
+
+@api.post("/reports/narrative")
+async def write_report_narrative(period: str = "week", offset: int = 0, today: Optional[str] = None,
+                                 user=Depends(get_current_user)):
+    """Generate (and cache) the AI narrative for one period."""
+    report = await _build_report(user, period, offset, today)
+    # An empty period is a bad request whether or not a provider is configured —
+    # there is nothing to narrate, and asking anyway just burns a call.
+    if not report["has_data"]:
+        raise HTTPException(400, "Nothing logged in this period yet")
+    provider = coach_provider()
+    if not provider:
+        return {**report, "configured": False}
+
+    facts = {k: report[k] for k in ("label", "start", "end", "days_elapsed", "workout_target",
+                                    "training", "previous", "recovery", "habits", "nutrition")}
+    system = REPORT_SYSTEM.format(period=period, label=report["label"],
+                                  words=200 if period == "week" else 300)
+    messages = [{"role": "user", "content": json.dumps(facts, default=str)}]
+    try:
+        if provider == "groq":
+            text = await call_groq(system, messages)
+        else:
+            client = get_anthropic()
+            resp = await client.messages.create(model=COACH_MODEL, max_tokens=900,
+                                                system=system, messages=messages)
+            text = "".join(b.text for b in resp.content if b.type == "text").strip()
+    except Exception as e:
+        logger.exception("report narrative failed")
+        raise HTTPException(502, f"AI request failed: {e}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.reports.update_one(
+        {"user_id": str(user["_id"]), "period": period, "start": report["start"]},
+        {"$set": {"text": text, "provider": provider, "signature": report["signature"],
+                  "label": report["label"], "created_at": now}},
+        upsert=True,
+    )
+    return {**report, "configured": True,
+            "narrative": {"text": text, "generated_at": now, "provider": provider, "stale": False}}
 
 
 # ── INTAKE (calories / macros / micros — self-contained, see intake.py) ───────

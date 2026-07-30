@@ -5,8 +5,9 @@
 
 ## 0. Start here
 
-**State:** deployed, live, and healthy. Backend **85 tests**, frontend **22 tests**, both green.
-Everything through session 8 is pushed and deployed.
+**State:** deployed, live, and healthy. Backend **109 tests**, frontend **34 tests**, both green.
+Everything through session 8 is pushed and deployed. **Session 9 (weekly/monthly reports) is
+committed but NOT pushed — the user has not been asked yet.**
 
 **Three things are waiting on the USER, not on code** — none of them are bugs:
 1. **Push cron.** Web push works and has been proven on a real iPhone, but reminders only
@@ -18,9 +19,9 @@ Everything through session 8 is pushed and deployed.
    450 steps through with the user's own token stored fine. Next diagnostic: add **Quick
    Look** after `Find Health Samples` and read the number.
 
-**Highest-value remaining work** (nothing is urgent): weekly/monthly AI reports,
-achievements/challenges, and the APK (all prep deployed; remaining steps are manual).
-The offline queue is deliberately **parked** — the user asked to hold it.
+**Highest-value remaining work** (nothing is urgent): achievements/challenges and the APK
+(all prep deployed; remaining steps are manual). Weekly/monthly AI reports are **done**
+(session 9, §7). The offline queue is deliberately **parked** — the user asked to hold it.
 
 **The honest recommendation, unchanged for several sessions: use the app in a real gym
 session.** The data layer is audited, every page has been clicked, and the bugs left are
@@ -136,6 +137,28 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 9 (2026-07-30) — weekly/monthly reports shipped. See `FEATURES.md` §22.**
+- **New route `/reports`** (nav item between Progress and Connections, plus a "Full report →"
+  link on the dashboard recap card). One week or one month at a time, stepped with ‹ ›.
+- **`GET /reports` returns computed numbers only**; `POST /reports/narrative` writes the AI
+  summary and is handed **exactly those numbers as JSON**, not `build_user_context`. Every
+  figure the coach cites is on the page as text beside it — keep it that way. The page works
+  fully with no AI configured.
+- **Narratives are cached** per `(user, period, start)` in `db.reports` with a `signature` hash
+  of the headline numbers; when the data moves the card shows a stale banner and a Rewrite
+  button. Don't make generation implicit — one page view must not equal one LLM call.
+- **A running period is scored on `days_elapsed`**, not the full 7/30 — a habit at 2/7 on a
+  Tuesday reads as failure. `today` is the caller's local date, same as `/life-score`.
+- **Hard sets reuse the `/workouts/muscle-volume` rule** (no warm-ups, no RPE<6) while volume
+  counts everything, matching `/workouts`. Deliberate — no two screens should disagree.
+- **`RecapText` moved to `components/AiText.jsx`**, now shared by the dashboard and the report.
+- Verified: 24 new backend tests (bounds incl. leap year, year rollover, Sunday; delta-based
+  training assertions that revert exactly on delete); July report reconciles with
+  `/workouts/stats` (13 / 6,495 kg / 26 / 5,846 s); browser click-through of period switching,
+  the stale banner, Rewrite, `LoadError` + retry via XHR sabotage; 375px clean, 0 console errors.
+- **Not included on purpose:** no charts (Progress owns those), no export/share of a report,
+  no scheduled "your week is ready" push. Those are the obvious next steps if it gets used.
 
 **SESSION 8 (2026-07-30) — Progress rebuilt as a full analytics view. See `FEATURES.md` §21.**
 - **New:** `features/progress/analytics.js` (pure functions, 22 unit tests) + `charts.jsx`.

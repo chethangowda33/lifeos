@@ -3,6 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import api from "@/api";
 import Onboarding from "@/components/Onboarding";
+import AiText from "@/components/AiText";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -229,27 +230,8 @@ export default function Dashboard() {
   );
 }
 
-/* Lightweight markdown for the AI recap — bold + bullets only. */
-function RecapText({ text }) {
-  const boldify = (s) =>
-    s.split(/(\*\*[^*]+\*\*)/g).map((p, i) =>
-      p.startsWith("**") && p.endsWith("**")
-        ? <strong key={i} className="text-foreground font-medium">{p.slice(2, -2)}</strong>
-        : <span key={i}>{p}</span>);
-  return (
-    <div className="space-y-1.5 text-sm text-muted-foreground">
-      {text.split("\n").filter((l) => l.trim()).map((l, i) => {
-        const t = l.trim();
-        if (/^[-*]\s/.test(t)) {
-          return <div key={i} className="flex gap-2"><span className="text-maroon">•</span><span>{boldify(t.replace(/^[-*]\s/, ""))}</span></div>;
-        }
-        return <p key={i}>{boldify(t)}</p>;
-      })}
-    </div>
-  );
-}
-
-/* One-tap AI weekly recap (Groq/Claude coach), grounded in the user's data. */
+/* One-tap AI weekly recap (Groq/Claude coach), grounded in the user's data.
+   The full week in numbers — and a report that's kept — lives at /reports. */
 function WeeklyRecap() {
   const [recap, setRecap] = useState(null);
   const [error, setError] = useState("");
@@ -272,9 +254,12 @@ function WeeklyRecap() {
         <h3 className="font-semibold tracking-tight flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-maroon" /> Weekly recap
         </h3>
-        {(recap || error) && !loading && (
-          <button onClick={generate} className="text-[11px] text-maroon hover:underline">Refresh</button>
-        )}
+        <div className="flex items-center gap-3">
+          {(recap || error) && !loading && (
+            <button onClick={generate} className="text-[11px] text-maroon hover:underline">Refresh</button>
+          )}
+          <Link to="/reports" className="text-[11px] text-maroon hover:underline">Full report →</Link>
+        </div>
       </div>
       {!recap && !error && !loading && (
         <div className="text-center py-3">
@@ -286,7 +271,7 @@ function WeeklyRecap() {
       )}
       {loading && <p className="text-sm text-muted-foreground py-3 text-center animate-pulse">Coach is reviewing your week…</p>}
       {error && !loading && <p className="text-sm text-muted-foreground py-1">{error}</p>}
-      {recap && !loading && <RecapText text={recap} />}
+      {recap && !loading && <AiText text={recap} />}
     </Card>
   );
 }

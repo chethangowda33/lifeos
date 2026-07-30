@@ -15,7 +15,30 @@ export const NAV = {
   itemCoach: 'nav-item-coach',
   itemSleep: 'nav-item-sleep',
   itemProgress: 'nav-item-progress',
+  itemReports: 'nav-item-reports',
   logoutButton: 'nav-logout-button',
+};
+
+export const REPORTS = {
+  root: 'reports-root',
+  periodTab: (key) => `reports-period-${key}`,  // week | month
+  periodLabel: 'reports-period-label',
+  prevButton: 'reports-prev-button',
+  nextButton: 'reports-next-button',
+  empty: 'reports-empty',
+  statWorkouts: 'reports-stat-workouts',
+  statVolume: 'reports-stat-volume',
+  statSets: 'reports-stat-sets',
+  statTime: 'reports-stat-time',
+  narrative: 'reports-narrative',
+  writeButton: 'reports-write-button',
+  regenerateButton: 'reports-regenerate-button',
+  staleFlag: 'reports-stale-flag',
+  topExercises: 'reports-top-exercises',
+  muscles: 'reports-muscles',
+  prs: 'reports-prs',
+  recovery: 'reports-recovery',
+  habits: 'reports-habits',
 };
 
 export const DASHBOARD = {

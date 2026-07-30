@@ -579,9 +579,64 @@ no horizontal scroll, no console errors.
 **Chart animation is off on purpose** — deterministic render, and it removes a class of
 "chart is blank" failures.
 
-## 22. Still not covered
+## 22. Period reports (2026-07-30, session 9)
 
-Accurate as of session 8. Earlier entries here were superseded — push **has** since been
+`/reports` — one week or one month, reviewed. Backend `GET /reports` +
+`POST /reports/narrative` (server.py, after the coach section); frontend `pages/Reports.jsx`
+with pure helpers in `features/reports/report.js` (12 unit tests).
+
+### Numbers first, narrative second
+`GET /reports` returns **only computed figures** — training (sessions, days trained, volume,
+sets, duration, top five lifts by volume, hard sets per muscle, PRs), the same block for the
+**previous** period, recovery (sleep, watch data), habit adherence, and intake averages. The
+page renders fully with the AI switched off.
+
+The narrative is a second, explicit call, and it is handed **exactly those numbers as JSON** —
+not `build_user_context`. That is the point of the split: every figure the coach can cite is
+already on the page as text beside it, so the AI is never the only source for a number. It
+cannot mention a lift the summary doesn't contain.
+
+### Why the narrative is cached
+Generating on every page view would be slow, costly and non-deterministic — the same week
+would read differently each visit. It is stored per `(user, period, start)` in `db.reports`
+with a `signature` (a hash of the headline numbers). When the data moves under a stored
+narrative the report comes back `stale: true` and the card says so rather than quietly
+describing numbers that have changed. **Don't make generation implicit** — a narrative the user
+didn't ask for is an LLM call they didn't ask for.
+
+### Judgement calls worth keeping
+- **A running period is scored against the days that have happened.** A habit at 2/7 on a
+  Tuesday reads as failure; `days_elapsed` makes it 2/2. Finished periods use all 7 (or 28-31).
+- **`today` is the caller's local date**, as with `/life-score`. Habits, sleep and intake are
+  keyed on the user's own calendar day, so a UTC boundary puts an IST user in the wrong week
+  between 00:00 and 05:30.
+- **No percentage against an empty period.** `delta()` returns `pct: null` when the previous
+  period was zero — "+100%" against a week you didn't train is noise dressed as insight — and
+  `null` when both are zero, so a rest week doesn't grow a row of grey 0% chips.
+- **Hard sets use the same rule as `/workouts/muscle-volume`** (no warm-ups, no RPE<6). Volume
+  counts everything, exactly as `/workouts` does. Two different questions, two different rules
+  — kept identical to the existing endpoints so no two screens disagree.
+- **Monthly target = weekly setting × weeks in the month**, not ×4.
+- `RecapText` moved out of `Dashboard.jsx` to `components/AiText.jsx` and is now shared by the
+  dashboard recap and the report — one renderer, one behaviour.
+
+### Verified
+- Backend **24 new tests** (period bounds incl. Sunday, leap year and year rollover; the
+  partial period; validation; auth). The training figures are checked by *delta*: a workout
+  logged through the API moves workouts/sets/volume/duration/hard-sets/signature by exactly the
+  hand-computed amount, and deleting it returns every one of them to the baseline. Runs on a
+  throwaway custom exercise, so real PR state is never touched.
+- The July report reconciles exactly with `/workouts/stats` (13 sessions, 6,495 kg, 26 sets,
+  5,846 s) — an independent aggregation agreeing with the existing one.
+- Clicked in the browser: period switch, stepping back through months, the stale banner (forced
+  by corrupting the stored signature), Rewrite clearing it, the AI-not-configured state, and the
+  failure state via XHR sabotage → `LoadError` + Try again recovers. A habit and a night of
+  sleep logged for today rendered "1/4 days" and "6.4 h · a little short · quality 3/5", then
+  were deleted and the report returned to empty. 375px: no horizontal overflow, 0 console errors.
+
+## 23. Still not covered
+
+Accurate as of session 9. Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is
 correct (full work→rest→round trace verified).
 
