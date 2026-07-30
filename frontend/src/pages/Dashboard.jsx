@@ -704,9 +704,12 @@ function RecentWorkouts({ workouts, loading }) {
 function RecordsCard({ records, loading }) {
   return (
     <Card data-testid={DASHBOARD.recordsCard} className="p-5">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground mb-3">
-        <Trophy className="h-3.5 w-3.5 text-[#f5a623]" />
-        Personal records
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+          <Trophy className="h-3.5 w-3.5 text-[#f5a623]" />
+          Personal records
+        </div>
+        <Link to="/achievements" className="text-[11px] text-maroon hover:underline">Badges →</Link>
       </div>
       {loading ? (
         <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>

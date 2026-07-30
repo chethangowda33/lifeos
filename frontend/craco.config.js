@@ -70,6 +70,15 @@ if (config.enableHealthCheck) {
 }
 
 let webpackConfig = {
+  // Jest doesn't inherit webpack's aliases, so a module importing "@/..." built
+  // fine and then failed only under test. Same alias, both places.
+  jest: {
+    configure: {
+      moduleNameMapper: {
+        "^@/(.*)$": "<rootDir>/src/$1",
+      },
+    },
+  },
   eslint: {
     configure: {
       extends: ["plugin:react-hooks/recommended"],

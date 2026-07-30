@@ -5,8 +5,8 @@
 
 ## 0. Start here
 
-**State:** deployed, live, and healthy. Backend **109 tests**, frontend **34 tests**, both green.
-Everything through session 8 is pushed and deployed. **Session 9 (weekly/monthly reports) is
+**State:** deployed, live, and healthy. Backend **120 tests**, frontend **46 tests**, both green.
+Everything through session 8 is pushed and deployed. **Session 9 (reports + achievements) is
 committed but NOT pushed — the user has not been asked yet.**
 
 **Three things are waiting on the USER, not on code** — none of them are bugs:
@@ -19,9 +19,10 @@ committed but NOT pushed — the user has not been asked yet.**
    450 steps through with the user's own token stored fine. Next diagnostic: add **Quick
    Look** after `Find Health Samples` and read the number.
 
-**Highest-value remaining work** (nothing is urgent): achievements/challenges and the APK
-(all prep deployed; remaining steps are manual). Weekly/monthly AI reports are **done**
-(session 9, §7). The offline queue is deliberately **parked** — the user asked to hold it.
+**Highest-value remaining work** (nothing is urgent): the **challenge** system (75 Hard,
+30-day cut, custom) and the APK (all prep deployed; remaining steps are manual). Weekly/monthly
+AI reports and achievements are **done** (session 9, §7). The offline queue is deliberately
+**parked** — the user asked to hold it.
 
 **The honest recommendation, unchanged for several sessions: use the app in a real gym
 session.** The data layer is audited, every page has been clicked, and the bugs left are
@@ -159,6 +160,27 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
   the stale banner, Rewrite, `LoadError` + retry via XHR sabotage; 375px clean, 0 console errors.
 - **Not included on purpose:** no charts (Progress owns those), no export/share of a report,
   no scheduled "your week is ready" push. Those are the obvious next steps if it gets used.
+
+**SESSION 9b (2026-07-30) — achievements shipped. See `FEATURES.md` §23.**
+- **New route `/achievements`** (nav item after Reports, plus a "Badges →" link on the
+  dashboard Personal-records card). 29 badges across Consistency / Volume / Strength / Habits /
+  Recovery / Nutrition.
+- **Badges are DERIVED, never logged.** The catalogue is one list in `server.py`
+  (`ACHIEVEMENTS`) of `{key, group, icon, metric, target, name, description}`; every metric is
+  recomputed per request by `_achievement_metrics()`. Adding a badge = adding one dict.
+- **A badge cannot outlive its data.** Only the first-observed moment is stored
+  (`db.achievement_unlocks`); if the numbers fall back below the threshold the stored record is
+  **deleted** and the badge locks again. Deliberate — same lesson as the §14 ghost PRs.
+- **First read of an existing account is recorded as already seen**, so months of history don't
+  produce 18 simultaneous "New" flags. After that, `new` survives being read and clears only on
+  `POST /achievements/seen` (fired by the page on view).
+- **Locked badges show progress** (`next_up` = the three nearest misses). A locked badge must
+  never carry an `unlocked_at` — there's a test for it.
+- `craco.config.js` now maps `@/` for **Jest** too; webpack had the alias and Jest didn't, so a
+  pure module importing `@/...` built fine and failed only under test.
+- Verified: 11 new backend tests incl. the full earn → new → seen → delete → retract lifecycle;
+  browser click-through of the same lifecycle on real data (2 badges lit up, chip cleared,
+  both retracted on delete); LoadError + retry in place; 375px clean, 0 console errors.
 
 **SESSION 8 (2026-07-30) — Progress rebuilt as a full analytics view. See `FEATURES.md` §21.**
 - **New:** `features/progress/analytics.js` (pure functions, 22 unit tests) + `charts.jsx`.

@@ -3399,6 +3399,225 @@ async def write_report_narrative(period: str = "week", offset: int = 0, today: O
             "narrative": {"text": text, "generated_at": now, "provider": provider, "stale": False}}
 
 
+# ── ACHIEVEMENTS ──────────────────────────────────────────────────────────────
+# Badges are DERIVED, never logged: every one is a threshold on data the user has
+# already recorded, so nothing new has to be tracked to earn them. The only thing
+# stored is the moment each was first observed — the state itself is recomputed,
+# which means an achievement can't drift out of sync with the data behind it (and
+# deleting a mistyped 500 kg set correctly takes its badge with it).
+#
+# Locked badges show progress on purpose. "3 of 10 workouts" is the part that
+# motivates; a wall of grey padlocks is just a list of things you haven't done.
+ACHIEVEMENTS: List[Dict[str, Any]] = [
+    # metric → the key returned by _achievement_metrics
+    {"key": "workouts_1", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 1, "name": "First rep", "description": "Log your first workout"},
+    {"key": "workouts_10", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 10, "name": "Getting into it", "description": "Log 10 workouts"},
+    {"key": "workouts_25", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 25, "name": "Habit forming", "description": "Log 25 workouts"},
+    {"key": "workouts_50", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 50, "name": "Half century", "description": "Log 50 workouts"},
+    {"key": "workouts_100", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 100, "name": "Century club", "description": "Log 100 workouts"},
+    {"key": "workouts_250", "group": "Consistency", "icon": "dumbbell", "metric": "workouts",
+     "target": 250, "name": "Iron veteran", "description": "Log 250 workouts"},
+    {"key": "weekstreak_2", "group": "Consistency", "icon": "calendar", "metric": "week_streak",
+     "target": 2, "name": "Two in a row", "description": "Hit your weekly training goal 2 weeks running"},
+    {"key": "weekstreak_4", "group": "Consistency", "icon": "calendar", "metric": "week_streak",
+     "target": 4, "name": "Month on target", "description": "Hit your weekly training goal 4 weeks running"},
+    {"key": "weekstreak_12", "group": "Consistency", "icon": "calendar", "metric": "week_streak",
+     "target": 12, "name": "Quarter on target", "description": "Hit your weekly training goal 12 weeks running"},
+
+    {"key": "volume_10k", "group": "Volume", "icon": "weight", "metric": "volume_kg",
+     "target": 10_000, "name": "Ten tonnes", "description": "Lift 10,000 kg in total"},
+    {"key": "volume_50k", "group": "Volume", "icon": "weight", "metric": "volume_kg",
+     "target": 50_000, "name": "Fifty tonnes", "description": "Lift 50,000 kg in total"},
+    {"key": "volume_250k", "group": "Volume", "icon": "weight", "metric": "volume_kg",
+     "target": 250_000, "name": "Quarter million", "description": "Lift 250,000 kg in total"},
+    {"key": "volume_1m", "group": "Volume", "icon": "weight", "metric": "volume_kg",
+     "target": 1_000_000, "name": "Millionaire", "description": "Lift 1,000,000 kg in total"},
+    {"key": "time_10h", "group": "Volume", "icon": "clock", "metric": "duration_seconds",
+     "target": 36_000, "name": "Ten hours in", "description": "Spend 10 hours training"},
+    {"key": "time_50h", "group": "Volume", "icon": "clock", "metric": "duration_seconds",
+     "target": 180_000, "name": "Fifty hours in", "description": "Spend 50 hours training"},
+    {"key": "time_100h", "group": "Volume", "icon": "clock", "metric": "duration_seconds",
+     "target": 360_000, "name": "Hundred hours in", "description": "Spend 100 hours training"},
+
+    {"key": "pr_1", "group": "Strength", "icon": "trophy", "metric": "prs",
+     "target": 1, "name": "First record", "description": "Set your first personal record"},
+    {"key": "pr_10", "group": "Strength", "icon": "trophy", "metric": "prs",
+     "target": 10, "name": "Record breaker", "description": "Set 10 personal records"},
+    {"key": "pr_50", "group": "Strength", "icon": "trophy", "metric": "prs",
+     "target": 50, "name": "Never satisfied", "description": "Set 50 personal records"},
+
+    {"key": "habit_streak_7", "group": "Habits", "icon": "flame", "metric": "habit_streak",
+     "target": 7, "name": "Week of discipline", "description": "Keep one habit for 7 days straight"},
+    {"key": "habit_streak_30", "group": "Habits", "icon": "flame", "metric": "habit_streak",
+     "target": 30, "name": "Thirty-day habit", "description": "Keep one habit for 30 days straight"},
+    {"key": "habit_done_100", "group": "Habits", "icon": "flame", "metric": "habit_completions",
+     "target": 100, "name": "Hundred check-ins", "description": "Complete a habit 100 times"},
+
+    {"key": "sleep_7", "group": "Recovery", "icon": "moon", "metric": "sleep_nights",
+     "target": 7, "name": "Sleep on record", "description": "Log 7 nights of sleep"},
+    {"key": "sleep_30", "group": "Recovery", "icon": "moon", "metric": "sleep_nights",
+     "target": 30, "name": "A month of nights", "description": "Log 30 nights of sleep"},
+    {"key": "sleep_streak_7", "group": "Recovery", "icon": "moon", "metric": "sleep_good_streak",
+     "target": 7, "name": "Seven good nights", "description": "Sleep 7 h or more, 7 nights running"},
+    {"key": "steps_10k", "group": "Recovery", "icon": "footprints", "metric": "best_steps",
+     "target": 10_000, "name": "Ten thousand steps", "description": "Walk 10,000 steps in a day"},
+    {"key": "synced_30", "group": "Recovery", "icon": "footprints", "metric": "days_synced",
+     "target": 30, "name": "Wired up", "description": "Sync 30 days of health data"},
+
+    {"key": "intake_7", "group": "Nutrition", "icon": "apple", "metric": "intake_days",
+     "target": 7, "name": "Watching what you eat", "description": "Log your food on 7 days"},
+    {"key": "intake_30", "group": "Nutrition", "icon": "apple", "metric": "intake_days",
+     "target": 30, "name": "Tracked for a month", "description": "Log your food on 30 days"},
+]
+
+
+def _longest_run(dates: set) -> int:
+    """Longest run of consecutive calendar days in a set of YYYY-MM-DD strings."""
+    days = sorted(d for d in dates if d)
+    best = run = 0
+    prev: Optional[date] = None
+    for s in days:
+        try:
+            cur = date.fromisoformat(s)
+        except ValueError:
+            continue  # a malformed key can't extend a streak, but must not end the scan
+        run = run + 1 if prev is not None and (cur - prev).days == 1 else 1
+        best = max(best, run)
+        prev = cur
+    return best
+
+
+async def _achievement_metrics(user: Dict[str, Any]) -> Dict[str, float]:
+    """Every number the badge thresholds are checked against, computed fresh."""
+    uid = str(user["_id"])
+    stats = await workout_stats(user)
+
+    settings = {**DEFAULT_WORKOUT_SETTINGS, **(user.get("workout_settings") or {})}
+    weekly_target = max(1, int(settings.get("weekly_workout_target") or 4))
+    per_week: Dict[str, int] = {}
+    async for w in db.workout_sessions.find({"user_id": uid}, {"created_at": 1}):
+        try:
+            d = date.fromisoformat((w.get("created_at") or "")[:10])
+        except ValueError:
+            continue
+        monday = (d - timedelta(days=d.weekday())).isoformat()
+        per_week[monday] = per_week.get(monday, 0) + 1
+    # Count back from this week, or from last week when this one is still in
+    # progress — an unfinished week must not break a streak it could still meet.
+    today = datetime.now(timezone.utc).date()
+    cursor = today - timedelta(days=today.weekday())
+    if per_week.get(cursor.isoformat(), 0) < weekly_target:
+        cursor -= timedelta(days=7)
+    week_streak = 0
+    while per_week.get(cursor.isoformat(), 0) >= weekly_target:
+        week_streak += 1
+        cursor -= timedelta(days=7)
+
+    habits = await db.habits.find({"user_id": uid}).to_list(200)
+    habit_logs = await db.habit_logs.find({"user_id": uid}).to_list(20000)
+    by_habit: Dict[str, List[Dict[str, Any]]] = {}
+    for lg in habit_logs:
+        by_habit.setdefault(lg.get("habit_id", ""), []).append(lg)
+    habit_completions = 0
+    habit_streak = 0
+    for h in habits:
+        tgt = h.get("target") or 1
+        counted = h.get("type") == "count"
+        done = {lg.get("date") for lg in by_habit.get(str(h["_id"]), [])
+                if ((lg.get("value") or 0) >= tgt if counted else bool(lg.get("completed")))}
+        habit_completions += len(done)
+        habit_streak = max(habit_streak, _longest_run(done))
+
+    sleep = await db.sleep_logs.find({"user_id": uid}).to_list(3000)
+    health = await db.health_daily.find({"user_id": uid}).to_list(3000)
+    intake_days = await db.intake_entries.distinct("date", {"user_id": uid})
+
+    return {
+        "workouts": stats["total_workouts"],
+        "volume_kg": stats["total_volume"],
+        "duration_seconds": stats["total_duration"],
+        "prs": await db.pr_events.count_documents({"user_id": uid}),
+        "week_streak": week_streak,
+        "habit_completions": habit_completions,
+        "habit_streak": habit_streak,
+        "sleep_nights": len(sleep),
+        "sleep_good_streak": _longest_run({s.get("date") for s in sleep if (s.get("hours") or 0) >= 7}),
+        "best_steps": max([h.get("steps") or 0 for h in health], default=0),
+        "days_synced": len(health),
+        "intake_days": len(intake_days),
+    }
+
+
+@api.get("/achievements")
+async def list_achievements(user=Depends(get_current_user)):
+    uid = str(user["_id"])
+    metrics = await _achievement_metrics(user)
+    stored = {d["key"]: d for d in await db.achievement_unlocks.find({"user_id": uid}).to_list(500)}
+    # An account with history earns a pile on its first ever read. Flagging all of
+    # them "new" would bury the one that actually just happened, so the first pass
+    # is recorded as already seen.
+    first_pass = not stored
+    now = datetime.now(timezone.utc).isoformat()
+
+    out, fresh, retracted = [], [], []
+    for a in ACHIEVEMENTS:
+        value = metrics.get(a["metric"], 0) or 0
+        target = a["target"]
+        unlocked = value >= target
+        rec = stored.get(a["key"])
+        if unlocked and not rec:
+            rec = {"user_id": uid, "key": a["key"], "unlocked_at": now, "seen": first_pass}
+            fresh.append(rec)
+        elif rec and not unlocked:
+            # The data that earned it is gone (a workout deleted, a log removed).
+            # Drop the record too rather than leave a badge the numbers no longer
+            # support — the same lesson as the ghost PRs in §14.
+            retracted.append(a["key"])
+            rec = None
+        out.append({
+            "key": a["key"], "group": a["group"], "icon": a["icon"], "name": a["name"],
+            "description": a["description"], "target": target,
+            # The frontend needs the metric to know whether "36000" is kilos,
+            # seconds or a count of days before it can label the progress bar.
+            "metric": a["metric"],
+            "value": round(value, 1),
+            "progress": round(min(1.0, value / target), 3) if target else 0,
+            "unlocked": unlocked,
+            "unlocked_at": rec.get("unlocked_at") if rec else None,
+            # Stays true until the achievements page is opened, so a badge earned
+            # mid-workout is still announced whenever the user next looks.
+            "new": bool(rec and not rec.get("seen")),
+        })
+    if fresh:
+        await db.achievement_unlocks.insert_many(fresh)
+    if retracted:
+        await db.achievement_unlocks.delete_many({"user_id": uid, "key": {"$in": retracted}})
+
+    unlocked = [a for a in out if a["unlocked"]]
+    return {
+        "achievements": out,
+        "groups": list(dict.fromkeys(a["group"] for a in ACHIEVEMENTS)),
+        "unlocked_count": len(unlocked),
+        "total": len(out),
+        "new_count": sum(1 for a in out if a["new"]),
+        # The three nearest misses — the useful half of a locked badge.
+        "next_up": sorted([a for a in out if not a["unlocked"]],
+                          key=lambda a: -a["progress"])[:3],
+    }
+
+
+@api.post("/achievements/seen")
+async def mark_achievements_seen(user=Depends(get_current_user)):
+    res = await db.achievement_unlocks.update_many(
+        {"user_id": str(user["_id"]), "seen": {"$ne": True}}, {"$set": {"seen": True}})
+    return {"ok": True, "marked": res.modified_count}
+
+
 # ── INTAKE (calories / macros / micros — self-contained, see intake.py) ───────
 # Dependencies are injected so intake.py never imports from server.py.
 from intake import build_router as build_intake_router  # noqa: E402

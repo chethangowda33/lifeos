@@ -19,6 +19,7 @@ import ExerciseDetail from "@/pages/ExerciseDetail";
 import BodyMetrics from "@/pages/BodyMetrics";
 import Progress from "@/pages/Progress";
 import Reports from "@/pages/Reports";
+import Achievements from "@/pages/Achievements";
 import Coach from "@/pages/Coach";
 import Admin from "@/pages/Admin";
 import Habits from "@/pages/Habits";
@@ -47,6 +48,7 @@ function App() {
               <Route path="/body-metrics" element={<BodyMetrics />} />
               <Route path="/progress" element={<Progress />} />
               <Route path="/reports" element={<Reports />} />
+              <Route path="/achievements" element={<Achievements />} />
               <Route path="/admin" element={<Admin />} />
               <Route path="/intake" element={<Intake />} />
               {/* Old link; keep it working. */}

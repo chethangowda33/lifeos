@@ -634,7 +634,53 @@ didn't ask for is an LLM call they didn't ask for.
   sleep logged for today rendered "1/4 days" and "6.4 h · a little short · quality 3/5", then
   were deleted and the report returned to empty. 375px: no horizontal overflow, 0 console errors.
 
-## 23. Still not covered
+## 23. Achievements (2026-07-30, session 9)
+
+`/achievements` — 29 badges in 6 groups. Backend `GET /achievements` +
+`POST /achievements/seen`; frontend `pages/Achievements.jsx` with pure helpers in
+`features/achievements/achievements.js` (13 unit tests).
+
+### Derived, never logged
+Every badge is a threshold on data the user already records — workouts, volume, time, PRs,
+weekly-goal streak, habit streaks, sleep, steps, food logs. **Nothing new has to be tracked to
+earn one.** The catalogue is a single list of `{key, group, icon, metric, target, name,
+description}` and `_achievement_metrics()` computes every metric it can be checked against.
+
+The only thing stored is the moment each was first observed (`db.achievement_unlocks`). State
+is recomputed on every read, which is what keeps a badge from drifting away from the data —
+**and when the data goes, the badge goes with it.** Deleting the sessions that earned it drops
+the stored record too, so it can be genuinely re-earned later. That is the §14 ghost-PR lesson
+applied before it could happen again: derived state must never outlive its source.
+
+### Judgement calls worth keeping
+- **Locked badges show progress**, not a padlock. "13 of 25 workouts" is the half that
+  motivates; `next_up` surfaces the three nearest misses at the top of the page.
+- **The first read of an account with history is recorded as already seen.** Otherwise a user
+  who has trained for months opens the page to 18 "New" flags and the one they actually just
+  earned is buried. After that first pass, `new` is real and *survives being read* — it clears
+  only on `POST /achievements/seen`, which the page fires on view. Reading the list somewhere
+  else (a dashboard card, later) can't eat the news.
+- **An unfinished week can't break the weekly-goal streak** — the count starts from last week
+  when this one hasn't met the target yet, the same rule the habit streak uses for "today".
+- **A locked badge never carries an unlock date** (asserted in the tests) — a date beside a
+  locked badge reads as earned.
+- **The unit lives with the metric.** The API returns `metric`, so the client can render
+  "6.5k / 10k kg" and "1h 37m / 10h 0m" instead of "6495 / 10000" and "5846 / 36000".
+
+### Verified
+- Backend **11 tests**: shape invariants across the whole catalogue (unique keys, progress ==
+  the ratio the bar draws, no unlock date while locked, counts agreeing with the list), plus a
+  full lifecycle — seven nights of sleep logged through the API unlock two badges as `new`,
+  `new` survives a second read, `seen` clears it, deleting the nights retracts both badges and
+  their stored records, and partial progress still shows.
+- Clicked in the browser: all 29 badges in 6 sections, unit labels, the "2 new" chip and per-
+  badge New pills appearing on a real unlock and gone after the page marked them seen, the
+  badges retracting when the data was deleted, and `LoadError` → Try again recovering in place.
+  375px: no overflow, no clipped cards, 0 console errors.
+- `craco.config.js` gained a Jest `moduleNameMapper` for `@/` — webpack had the alias and Jest
+  didn't, so a module importing `@/...` built fine and failed only under test.
+
+## 24. Still not covered
 
 Accurate as of session 9. Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is

@@ -16,7 +16,17 @@ export const NAV = {
   itemSleep: 'nav-item-sleep',
   itemProgress: 'nav-item-progress',
   itemReports: 'nav-item-reports',
+  itemAchievements: 'nav-item-achievements',
   logoutButton: 'nav-logout-button',
+};
+
+export const ACHIEVEMENTS = {
+  root: 'achievements-root',
+  summary: 'achievements-summary',
+  newCount: 'achievements-new-count',
+  nextUp: 'achievements-next-up',
+  section: (group) => `achievements-section-${group.toLowerCase()}`,
+  badge: (key) => `achievements-badge-${key}`,
 };
 
 export const REPORTS = {
