@@ -7,8 +7,10 @@ import { fmtClock } from "@/features/workout/lib/format";
 export default function RestTimerRow({ seconds, onChange, running, remaining, onSkip, onAdjust }) {
   const presets = [0, 30, 60, 90, 120, 180, 240, 300];
   const label = seconds === 0 ? "OFF" : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  // Wraps rather than overflows: label + select + the running controls total
+  // ~376px, which is 12px past the right edge on a 375px phone.
   return (
-    <div className="mt-3 flex items-center gap-3 text-sm">
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
       <div className="flex items-center gap-1.5 text-maroon font-medium">
         <Timer className="h-4 w-4" />
         Rest Timer: <span data-testid={SESSION.restTimerToggle}>{label}</span>
@@ -23,7 +25,7 @@ export default function RestTimerRow({ seconds, onChange, running, remaining, on
         ))}
       </select>
       {running && (
-        <div className="ml-auto flex items-center gap-1.5 text-xs">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 text-xs">
           <button onClick={() => onAdjust?.(-15)} className="h-6 px-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-[hsl(var(--maroon)/0.4)]">−15</button>
           <span className="font-mono text-maroon font-semibold w-12 text-center">{fmtClock(remaining)}</span>
           <button onClick={() => onAdjust?.(15)} className="h-6 px-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-[hsl(var(--maroon)/0.4)]">+15</button>
