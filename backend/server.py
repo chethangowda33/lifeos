@@ -378,6 +378,35 @@ HEALTH_DAILY_FIELDS = (
     "spo2", "stress", "respiratory_rate", "active_energy",
 )
 
+# These only ever ACCUMULATE across a day — you cannot walk negative steps.
+# So a resync reporting less than what is already stored is never a correction;
+# it is a broken automation or a second device that wasn't carried, and letting
+# it overwrite destroys the real day. Within a day the correct merge is max().
+#
+# This is not hypothetical: a Shortcuts recipe that posted the raw sample list
+# instead of its sum sent the SAMPLE COUNT (8) while Health showed 52 steps, and
+# the server stored it with `ok: true`. Bounds checking can't catch that — 8 is a
+# perfectly legal step count. Only the day's own history can.
+MONOTONIC_DAILY_FIELDS = ("steps", "distance_km", "active_energy")
+
+
+def merge_daily_metrics(existing: Dict[str, Any], incoming: Dict[str, Any]) -> tuple:
+    """→ (to_store, kept_existing). Monotonic fields that would go backwards are
+    dropped from the write and named, so the caller can say so rather than
+    silently discarding either number. Pure, for testability."""
+    to_store: Dict[str, Any] = {}
+    kept: List[str] = []
+    for field, value in incoming.items():
+        old = existing.get(field)
+        if (field in MONOTONIC_DAILY_FIELDS
+                and isinstance(old, (int, float)) and not isinstance(old, bool)
+                and isinstance(value, (int, float)) and not isinstance(value, bool)
+                and value < old):
+            kept.append(field)
+            continue
+        to_store[field] = value
+    return to_store, kept
+
 
 class WorkoutSetIn(BaseModel):
     set_type: str = "working"  # working | warmup | dropset | failure | amrap
@@ -1546,6 +1575,7 @@ async def health_ingest_raw(request: Request, metric: str = "steps", date: Optio
 
     stored = False
     rejected = None
+    kept: List[str] = []
     if parsed["total"] is not None:
         value = round(parsed["total"], 2)
         # Run the summed value through the same bounds the JSON endpoint uses, so
@@ -1565,19 +1595,24 @@ async def health_ingest_raw(request: Request, metric: str = "steps", date: Optio
                     {"$set": {"user_id": uid, "date": d, "hours": value, "source": "sync"}},
                     upsert=True,
                 )
+                stored = True
             else:
-                await db.health_daily.update_one(
-                    {"user_id": uid, "date": d},
-                    {"$set": {metric: value, "synced_at": datetime.now(timezone.utc).isoformat()}},
-                    upsert=True,
-                )
-            stored = True
+                existing = await db.health_daily.find_one({"user_id": uid, "date": d}) or {}
+                to_store, kept = merge_daily_metrics(existing, {metric: value})
+                if to_store:
+                    await db.health_daily.update_one(
+                        {"user_id": uid, "date": d},
+                        {"$set": {**to_store, "synced_at": datetime.now(timezone.utc).isoformat()}},
+                        upsert=True,
+                    )
+                    stored = True
 
     return {
         "ok": True, "date": d, "metric": metric, "stored": stored,
         "total": parsed["total"], "samples": parsed["count"],
         "parsed_as": parsed["parsed_as"],
         "rejected": rejected,
+        "kept_existing": kept,
         "received_preview": raw[:300],
     }
 
@@ -1604,6 +1639,10 @@ async def health_ingest(payload: HealthIngestIn, request: Request):
         v = getattr(payload, f)
         if v is not None:
             daily[f] = v
+    kept: List[str] = []
+    if daily:
+        existing = await db.health_daily.find_one({"user_id": uid, "date": d}) or {}
+        daily, kept = merge_daily_metrics(existing, daily)
     if daily:
         daily["synced_at"] = datetime.now(timezone.utc).isoformat()
         await db.health_daily.update_one(
@@ -1619,7 +1658,9 @@ async def health_ingest(payload: HealthIngestIn, request: Request):
             upsert=True,
         )
 
-    return {"ok": True, "date": d, "stored": list(daily.keys()) + (["sleep"] if payload.sleep_hours is not None else [])}
+    return {"ok": True, "date": d,
+            "stored": list(daily.keys()) + (["sleep"] if payload.sleep_hours is not None else []),
+            "kept_existing": kept}
 
 
 @api.get("/health/daily")
