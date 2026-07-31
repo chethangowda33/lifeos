@@ -69,6 +69,7 @@ export default function Workout() {
   const [exerciseDetailId, setExerciseDetailId] = useState(null);
 
   const [loadFailed, setLoadFailed] = useState(false);
+  const [heroReady, setHeroReady] = useState(false); // all four hero inputs have landed
   const [workouts, setWorkouts] = useState([]); // history — powers week strip + hero
   const loadWorkouts = async () => {
     try {
@@ -176,8 +177,14 @@ export default function Workout() {
     setProgramDetail(data);
   };
 
-  useEffect(() => { loadRoutines(); loadPlans(); loadWorkouts(); loadRecovery(); }, []);
-  useEffect(() => { loadPrograms(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // The hero's empty state branches on routines + plans + workouts + programs at
+  // once, so rendering it while they're still arriving flashed the recommendation
+  // in and out (/programs resolves before /workouts). Wait for all four.
+  useEffect(() => {
+    Promise.allSettled([loadRoutines(), loadPlans(), loadWorkouts(), loadPrograms()])
+      .then(() => setHeroReady(true));
+    loadRecovery();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Explore view (programs) ────────────────────────────────────────────────
   if (view === "explore") {
@@ -291,6 +298,8 @@ export default function Workout() {
           what="your routines"
           onRetry={() => { loadRoutines(); loadPlans(); loadWorkouts(); }}
         />
+      ) : !heroReady ? (
+        <Card className="h-44 border-dashed animate-pulse" />
       ) : (
         <HeroCard
           plans={plans}
