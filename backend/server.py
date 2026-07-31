@@ -423,6 +423,7 @@ class WorkoutSettingsIn(BaseModel):
     plate_inventory: Optional[List[float]] = None
     train_reminder_enabled: Optional[bool] = None
     train_reminder_time: Optional[str] = None  # "HH:MM" 24h
+    weekly_report_push_enabled: Optional[bool] = None  # Sunday-evening "your week" push
     tz_offset_minutes: Optional[int] = None  # local offset from UTC, for background push
     weekly_workout_target: Optional[int] = None  # sessions/week the dashboard + Life Score measure against
 
@@ -442,6 +443,7 @@ DEFAULT_WORKOUT_SETTINGS: Dict[str, Any] = {
     "plate_inventory": [25, 20, 15, 10, 5, 2.5, 1.25],
     "train_reminder_enabled": False,
     "train_reminder_time": "18:00",
+    "weekly_report_push_enabled": False,
     "weekly_workout_target": 4,
 }
 
@@ -1879,6 +1881,51 @@ def push_configured() -> bool:
     return bool(os.environ.get("VAPID_PRIVATE_KEY") and os.environ.get("VAPID_PUBLIC_KEY"))
 
 
+# Sunday-evening weekly recap. Reports are pull-only and nobody opens an app to
+# read a report they don't know exists.
+WEEKLY_PUSH_WEEKDAY = 6   # Sunday, matching the Monday-start weeks _period_bounds uses
+WEEKLY_PUSH_HOUR = 19     # 19:00 local
+WEEKLY_PUSH_GRACE_MINUTES = 180
+
+
+def weekly_push_due(settings: Dict[str, Any], local_now: datetime) -> Optional[str]:
+    """The ISO week key to stamp if a weekly recap is due for this user right
+    now, else None. Pure, so the schedule is testable without a scheduler.
+
+    The key is the week being *reported on*, which is why it's derived from
+    `local_now` rather than counted — a cron that misses a Sunday must not fire
+    a stale recap on Monday, and one that runs four times inside the window must
+    only send once."""
+    if not settings.get("weekly_report_push_enabled"):
+        return None
+    if local_now.weekday() != WEEKLY_PUSH_WEEKDAY:
+        return None
+    late = (local_now.hour * 60 + local_now.minute) - WEEKLY_PUSH_HOUR * 60
+    if late < 0 or late > WEEKLY_PUSH_GRACE_MINUTES:
+        return None
+    year, week, _ = local_now.isocalendar()
+    key = f"{year}-W{week:02d}"
+    return None if settings.get("last_weekly_push") == key else key
+
+
+def weekly_push_body(training: Dict[str, Any]) -> Optional[str]:
+    """One line of the user's own numbers — or None when there's nothing to say.
+
+    A "0 sessions this week" push is a guilt-trip that costs us notification
+    permission, and the people it would reach are the ones least likely to want
+    it. Silence is the better failure mode."""
+    sessions = training.get("workouts") or 0
+    if not sessions:
+        return None
+    volume = training.get("volume_kg") or 0
+    vol = f"{round(volume / 1000, 1)}k kg" if volume >= 1000 else f"{round(volume)} kg"
+    parts = [f"{sessions} session{'s' if sessions != 1 else ''}", vol]
+    prs = len(training.get("prs") or [])
+    if prs:
+        parts.append(f"{prs} PR{'s' if prs != 1 else ''}")
+    return " · ".join(parts)
+
+
 @api.get("/push/config")
 async def push_config():
     return {"configured": push_configured(), "public_key": os.environ.get("VAPID_PUBLIC_KEY", "")}
@@ -1903,11 +1950,46 @@ async def push_unsubscribe(payload: PushSubscriptionIn, user=Depends(get_current
     return {"ok": True, "removed": res.deleted_count}
 
 
+async def _push_subs(uid: str) -> List[Dict[str, Any]]:
+    return await db.push_subscriptions.find({"user_id": uid}).to_list(10)
+
+
+async def _send_push(subs: List[Dict[str, Any]], payload: Dict[str, Any],
+                     webpush, WebPushException) -> tuple:
+    """Deliver one payload to every subscription of one user → (sent, dropped).
+
+    The ONE place a push is sent, so the reminder and the weekly recap can't
+    drift apart on how a dead subscription is handled."""
+    sent = dropped = 0
+    for sub in subs:
+        try:
+            webpush(
+                subscription_info={"endpoint": sub["endpoint"], "keys": sub.get("keys", {})},
+                data=json.dumps(payload),
+                vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
+                vapid_claims={"sub": f"mailto:{os.environ.get('ADMIN_EMAIL', 'admin@lifeos.app')}"},
+            )
+            sent += 1
+        except WebPushException:
+            # 404/410 = the browser dropped the subscription; stop retrying it.
+            await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+            dropped += 1
+        except Exception:
+            # A corrupt stored key raises ValueError deep in the crypto layer.
+            # This loop serves EVERY user, so one bad row must not abort the run
+            # and cost everyone else their notification — drop it and keep going.
+            logger.warning("push: dropping unusable subscription %s", sub.get("endpoint", "")[:60])
+            await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
+            dropped += 1
+    return sent, dropped
+
+
 @api.post("/push/dispatch")
 async def push_dispatch(request: Request):
-    """Send train reminders that are due. Called by an EXTERNAL scheduler (cron-job.org,
-    GitHub Actions, …) with the PUSH_DISPATCH_SECRET — the free Render tier sleeps, so
-    the app cannot reliably wake itself. Idempotent per user per day."""
+    """Send train reminders and weekly recaps that are due. Called by an EXTERNAL
+    scheduler (cron-job.org, GitHub Actions, …) with the PUSH_DISPATCH_SECRET — the
+    free Render tier sleeps, so the app cannot reliably wake itself. Reminders are
+    idempotent per user per day, recaps per user per ISO week."""
     secret = os.environ.get("PUSH_DISPATCH_SECRET", "")
     if not secret or request.headers.get("X-Dispatch-Secret") != secret:
         raise HTTPException(401, "Bad dispatch secret")
@@ -1940,7 +2022,7 @@ async def push_dispatch(request: Request):
             continue
         if st.get("last_push_date") == today:
             continue  # already reminded today
-        subs = await db.push_subscriptions.find({"user_id": str(u["_id"])}).to_list(10)
+        subs = await _push_subs(str(u["_id"]))
         if not subs:
             continue
         body = "Your next session is ready."
@@ -1949,28 +2031,43 @@ async def push_dispatch(request: Request):
             # Same rule the NEXT UP card uses: the day rested longest.
             nxt = min(plan["days"], key=lambda d: d.get("last_completed_at") or "")
             body = f"{nxt.get('name')} is next in your rotation."
-        for sub in subs:
-            try:
-                webpush(
-                    subscription_info={"endpoint": sub["endpoint"], "keys": sub.get("keys", {})},
-                    data=json.dumps({"title": "Time to train 🏋️", "body": body, "url": "/workout"}),
-                    vapid_private_key=os.environ["VAPID_PRIVATE_KEY"],
-                    vapid_claims={"sub": f"mailto:{os.environ.get('ADMIN_EMAIL', 'admin@lifeos.app')}"},
-                )
-                sent += 1
-            except WebPushException:
-                # 404/410 = the browser dropped the subscription; stop retrying it.
-                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
-                dropped += 1
-            except Exception:
-                # A corrupt stored key raises ValueError deep in the crypto layer.
-                # This loop serves EVERY user, so one bad row must not abort the run
-                # and cost everyone else their reminder — drop it and keep going.
-                logger.warning("push: dropping unusable subscription %s", sub.get("endpoint", "")[:60])
-                await db.push_subscriptions.delete_one({"endpoint": sub["endpoint"]})
-                dropped += 1
+        s, d = await _send_push(
+            subs, {"title": "Time to train 🏋️", "body": body, "url": "/workout"},
+            webpush, WebPushException,
+        )
+        sent += s
+        dropped += d
         await db.users.update_one({"_id": u["_id"]}, {"$set": {"workout_settings.last_push_date": today}})
-    return {"ok": True, "sent": sent, "dropped": dropped}
+
+    # ── Weekly recap: Sunday evening, the week that ends today ────────────────
+    weekly_sent = 0
+    async for u in db.users.find({"workout_settings.weekly_report_push_enabled": True}):
+        st = u.get("workout_settings") or {}
+        local_now = now + timedelta(minutes=int(st.get("tz_offset_minutes") or 0))
+        week_key = weekly_push_due(st, local_now)
+        if not week_key:
+            continue
+        uid = str(u["_id"])
+        subs = await _push_subs(uid)
+        if not subs:
+            continue
+        # The same numbers /reports shows for this week — the push must never be
+        # able to say something the page then contradicts.
+        bounds = _period_bounds("week", 0, local_now.date().isoformat())
+        body = weekly_push_body(await _report_training(uid, bounds["start"], bounds["end"]))
+        # A quiet week still stamps, or an untrained user gets this retried every
+        # 15 minutes until the window closes.
+        if body:
+            s, d = await _send_push(
+                subs, {"title": "Your week 📊", "body": body, "url": "/reports"},
+                webpush, WebPushException,
+            )
+            weekly_sent += s
+            dropped += d
+        await db.users.update_one({"_id": u["_id"]},
+                                  {"$set": {"workout_settings.last_weekly_push": week_key}})
+
+    return {"ok": True, "sent": sent, "dropped": dropped, "weekly_sent": weekly_sent}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -195,6 +195,32 @@ export default function WorkoutSettings() {
         )}
       </Card>
 
+      {/* Reports are pull-only — nobody opens an app to read a report they don't
+          know exists. Push-only by nature, so it isn't offered without push. */}
+      {push.supported && push.configured && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <div className="font-semibold">Sunday weekly recap</div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                A Sunday-evening notification with your week in numbers — sessions, volume,
+                PRs — opening your full report. Quiet weeks are skipped.
+                {!push.subscribed && " Turn on the closed-app push above first."}
+              </div>
+            </div>
+            <Switch
+              checked={!!s.weekly_report_push_enabled}
+              onCheckedChange={(v) =>
+                // Re-stamp the offset here too: the recap fires on the user's local
+                // Sunday evening, and the one saved at subscribe time can be a
+                // timezone (or a DST change) out of date.
+                save({ weekly_report_push_enabled: v, tz_offset_minutes: -new Date().getTimezoneOffset() })
+              }
+            />
+          </div>
+        </Card>
+      )}
+
       <Card className="p-5 space-y-3">
         <div className="font-semibold">Plate calculator setup</div>
         <div className="grid grid-cols-[110px_1fr] gap-3 items-end">
