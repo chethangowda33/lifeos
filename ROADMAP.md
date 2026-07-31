@@ -86,8 +86,9 @@ basics are proven in real use.**
 - **Use it in a real gym session.** The handoff has said this for five sessions running.
   Six modules, none used under real conditions. The bugs left are the kind that only surface
   on set four with chalk on your hands — they can't be found from here.
-- **APK** — deliberately parked by the user. All repo-side prep is done and deployed
-  (`assetlinks.json` live, manifest TWA-ready, `APK_SETUP.md` written). Remaining steps are
-  manual and the user's. Don't start without a go.
+- **APK** — **DONE 2026-07-31.** Built locally with Bubblewrap; signed APK + AAB are in
+  `C:\Users\chethan\lifeos-android\twa\`, the real signing fingerprint is live in
+  `assetlinks.json`. See `APK_SETUP.md`. Left for the user: sideload it, and (optional)
+  the $25 Play Console account + AAB upload.
 - **Offline queue beyond workouts** — deliberately parked by the user.
 - **Nutrition** — explicitly excluded. **Journal** — removed 2026-07-14, don't re-add.

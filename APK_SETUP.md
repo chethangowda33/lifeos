@@ -5,12 +5,49 @@ Your app is already a PWA, so we wrap the live site in a thin Android shell (a
 full-screen with no browser bar, and **every `git push` updates the app** — you
 never re-release for content changes.
 
-Two tracks below. **Track A (PWABuilder) is the easiest — no tools to install.**
-
 Your values (already filled in everywhere):
 - **URL:** `https://lifeos-nine-eta.vercel.app`
 - **Package / App ID:** `com.cglifeos.app`
 - **App name:** `CG's LifeOS`  ·  **Launcher name:** `LifeOS`
+
+---
+
+## DONE — built locally 2026-07-31 (Track C)
+
+The APK was built on this machine with Bubblewrap. Everything lives **outside the
+repo** in `C:\Users\chethan\lifeos-android\` (see `READ-ME-FIRST.txt` there):
+
+| Thing | Path |
+|---|---|
+| Signed APK (sideload) | `lifeos-android\twa\app-release-signed.apk` |
+| Signed AAB (Play Store) | `lifeos-android\twa\app-release-bundle.aab` |
+| **Signing key — BACK UP** | `lifeos-android\android.keystore` + `KEYSTORE-PASSWORD.txt` |
+| App settings | `lifeos-android\twa\twa-manifest.json` |
+| Rebuild script | `bash C:/Users/chethan/lifeos-android/twa/rebuild.sh` |
+| Toolchain (JDK 17 + Android SDK) | `lifeos-android\tools\` |
+
+The key's SHA-256 is already live in `frontend/public/.well-known/assetlinks.json`,
+so the app verifies against the domain and shows **no URL bar**.
+
+Gotchas hit, for next time:
+- `@bubblewrap/cli@1.25.0` is broken on npm (depends on `@bubblewrap/validator@^1.25.0`,
+  which was never published) — install **1.24.1**.
+- Bubblewrap wants the command-line tools at the **SDK root** (`sdk\bin`), not only in
+  `sdk\cmdline-tools\latest\bin`, or it errors "The provided androidSdk isn't correct."
+- It hardcodes **build-tools 36.1.0** and **compileSdk 36** — install exactly those.
+- Its `GradleWrapper` shells out to bare `gradlew.bat`, which fails from a non-cmd
+  shell; run gradle directly and sign with `sign.sh` instead.
+- The version field in `twa-manifest.json` is **`appVersion`**, not `appVersionName` —
+  get it wrong and the APK builds with an empty `versionName`, which Play rejects.
+
+**Rebuild only when the app name, icon, colours or version change** — not for features.
+Bump `appVersionCode` in `twa-manifest.json` first.
+
+---
+
+## The two DIY tracks (kept for reference)
+
+**Track A (PWABuilder) needs no tools installed.**
 
 ---
 
