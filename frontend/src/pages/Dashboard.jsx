@@ -501,7 +501,11 @@ function TodayHero({ weekCount, target, streak, recovery, loading }) {
   );
 }
 
-/* Today's health strip: watch/phone metrics (steps, HR, HRV, stress, SpO₂, distance). */
+/* Today's health strip: watch/phone metrics (steps, HR, HRV, stress, SpO₂, distance).
+
+   Carries its own age. The phone syncs on a schedule, not live, so a step count
+   here can be hours old — and a stale number that looks current is worse than no
+   number. If the automation quietly stops, the timestamp is what shows it. */
 function HealthStrip({ today }) {
   const TILES = [
     { key: "steps", label: "steps", icon: Footprints, fmt: (v) => v.toLocaleString() },
@@ -518,6 +522,9 @@ function HealthStrip({ today }) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
           <Activity className="h-3.5 w-3.5" /> Today&apos;s health · from your watch
+          {today?.synced_at && (
+            <span className="normal-case tracking-normal">· synced {fmtRelative(today.synced_at)}</span>
+          )}
         </div>
         <Link to="/connections" className="text-[11px] text-maroon hover:underline">Manage</Link>
       </div>

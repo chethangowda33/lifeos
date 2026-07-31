@@ -72,10 +72,12 @@ and every reason with the points it cost. Not an LLM call — the arithmetic is 
 32 tests. **The HR/HRV inputs stay dormant until the steps/health sync in Phase 0 is fixed;**
 the verdict works from training + sleep alone until then.
 
-### 4. Progress photos + before/after
-In the original vision, never built. Progress has no visual dimension today. Costs more than
-the others (storage, upload, privacy) — worth it **only if the photos actually get taken**.
-Decide that before building it.
+### 4. ~~Progress photos + before/after~~ ❌ **DROPPED by the user 2026-07-31**
+Decision made after costing it out: storage is genuinely free at this scale (~95 MB over three
+years for two users on Cloudflare R2's 10 GB tier), so money was never the issue. The cost is
+the privacy work — private bucket, short-lived signed URLs, real file deletion on account
+delete — and that is only worth paying **if the photos get taken**. The user's answer was no.
+**Don't re-propose it.** If it ever comes back, the storage note above is the starting point.
 
 ### 5. Form check from video
 Upload a set, AI critiques the movement. The most differentiating idea here and the most fun;
