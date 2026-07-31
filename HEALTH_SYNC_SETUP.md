@@ -23,26 +23,23 @@ to Apple Health / Health Connect.
 
 ---
 
-## ⭐ Easiest path — let the server do the maths (2 actions)
-
-The classic recipe below uses **Find Health Samples → Calculate Statistics → POST**.
-On some devices Calculate Statistics silently produces nothing and the JSON field gets
-sent as `null` — the request succeeds but `stored` comes back empty. If that happens to
-you, use this shorter version instead: it drops the Calculate Statistics step entirely
-and lets the backend sum the samples.
+## ⭐ The recipe that actually works (3 actions) — verified on a real iPhone 2026-07-31
 
 **Shortcuts → Automation → Time of Day → 11:30 PM, Daily, Run Immediately**, then:
 
 | # | Action | Settings |
 |---|---|---|
-| 1 | **Find Health Samples** | Type `Steps`, Start Date `is today` |
-| 2 | **Get Contents of URL** | see below |
+| 1 | **Find Health Samples** | Type `Steps`, Start Date `is today`, Limit **off**, Group by `None` |
+| 2 | **Calculate Statistics** | Operation **`Sum`**, Input = the **Health Samples** from step 1 |
+| 3 | **Get Contents of URL** | see below |
+| 4 | **Quick Look** *(while setting up)* | shows the server's reply; delete it once it works |
 
 **Get Contents of URL:**
 - URL: `https://lifeos-api-g6hq.onrender.com/api/health/ingest/raw?metric=steps`
 - Method: **POST**
 - Headers: `X-Health-Token` → your key
-- Request Body: **File** (not JSON) → choose the **Health Samples** variable from step 1
+- Request Body: **File** (not JSON) → choose the **`Sum`** variable from step 2
+  (Shortcuts names that variable after the operation, so it reads "Sum", not "Statistics")
 
 The response tells you exactly what happened:
 
@@ -54,6 +51,30 @@ The response tells you exactly what happened:
 - `stored: true` → it worked
 - `stored: false` → `received_preview` shows precisely what your phone sent, so the
   problem is visible rather than guessed at. Send that preview along if you need help.
+
+### ⚠️ Do NOT drop Calculate Statistics — it fails by storing a WRONG number
+
+An earlier version of this file recommended a 2-action recipe that posted the **Health
+Samples** variable straight to `/ingest/raw` and let the server sum it. On a real iPhone
+(iOS 26, 2026-07-31) that variable serialises to **the number of samples, not the steps**.
+
+The failure is nasty because it looks like success:
+
+```json
+{"ok":true,"stored":true,"total":8,"samples":1,
+ "received_preview":"8","parsed_as":"json-number"}
+```
+
+Health showed **52** steps that moment, across 8 chunks of walking. The phone sent `8`.
+`stored: true`, no error, a plausible-looking small number written to the database.
+
+**The tell:** `parsed_as: "json-number"` with `samples: 1` and a total that is suspiciously
+small and **doesn't move when you walk** — re-run after a walk and the number barely
+changes, because sample *count* grows far slower than step count.
+
+The server cannot detect this. A correct `Sum` and a wrong sample count arrive as the
+identical payload — a bare number. Only the Health app can tell you which one you sent, so
+**always check the first run against Health → Steps → today before trusting it.**
 
 Change `?metric=steps` to any field in the table below — `resting_hr`, `active_energy`,
 `sleep_hours`, etc. Add one more **Find Health Samples → Get Contents of URL** pair per
@@ -174,7 +195,9 @@ Same endpoint, same header, same JSON. Use **Tasker** (paid) or **Macrodroid** (
 |---|---|
 | `401` | Wrong/stale token, or a space when pasting. Re-copy from Connections. |
 | Request hangs ~40s then works | Render free tier waking up. Expected. |
-| `"stored": []` **with `ok: true`** | The token is fine — the value arrived as `null`. Shortcuts does this when a **Number**-typed JSON field holds a variable it can't resolve, or when Calculate Statistics returned nothing. **Use the 2-action recipe at the top of this file** — it removes both causes. |
+| `"stored": []` **with `ok: true`** | The token is fine — the value arrived as `null`. Shortcuts does this when a **Number**-typed JSON field holds a variable it can't resolve, or when Calculate Statistics returned nothing. Post to `/ingest/raw` instead so the reply shows you what was actually sent. |
+| **A small number that doesn't grow when you walk** | You posted the raw **Health Samples** variable instead of the **Sum** — that serialises to the sample *count*. `stored: true` and no error, but the figure is wrong. See the warning under the recipe above. |
+| `Find Health Samples` returns nothing at all | Shortcuts may never have been granted Health read access. A **background automation cannot show a permission prompt**, so it fails silently forever. Open the shortcut and run it by hand once with ▶ — that's what makes iOS ask. |
 | `"stored": []` **and you sent JSON** | Field name doesn't match the table exactly (it's `steps`, not `Steps`). |
 | Data on the wrong day | Automation ran after local midnight; send `date` explicitly. |
 | Nothing in Apple Health to read | The watch's own app isn't writing to Health yet (Step 1). |

@@ -16,19 +16,17 @@ thinking for implementation work; save deep reasoning for design calls.
 None of this costs credits. Three modules are already built and sitting idle because the
 data never arrives. **Do this before spending on new features.**
 
-- [ ] **Get steps flowing.** `Find Health Samples` returns empty on the phone while Health
-      shows 400+ steps. First: add a **Quick Look** action right after it and run the
-      shortcut — that distinguishes "returns 0 samples" from "returns samples that later
-      actions drop", which are different bugs. Likely causes, in order: a date filter that
-      doesn't match how samples are timestamped; a Limit / get-first-item setting
-      truncating the result; a **Source** filter pinned to a device that isn't writing (the
-      Fastrack app writes as its own source, not as "iPhone").
-      **Escape hatch:** stop fighting Shortcuts — use a health-export app that POSTs to a
-      REST endpoint natively (e.g. Health Auto Export). Verify its JSON against
-      `POST /api/health/ingest` before committing to it. The server side is proven: pushing
-      450 steps through with the user's own token stored fine.
-      → unlocks: Life Score (needs 2+ tracked areas), AI coach recovery context,
-      the Recovery block in reports, the steps achievements.
+- [x] ~~**Get steps flowing.**~~ ✅ **2026-07-31 — steps are syncing.** The blocker was never
+      the filters (Type/Start Date/Limit were right all along) and never the server. Two
+      things, in order: the 2-action recipe posted the **Health Samples** variable raw, which
+      on iOS 26 serialises to the **sample count** — it stored `8` while Health showed `52`,
+      with `stored: true` and no error. Adding **Calculate Statistics → Sum** and posting the
+      **`Sum`** variable to `/api/health/ingest/raw?metric=steps` fixed it. `HEALTH_SYNC_SETUP.md`
+      now carries the working recipe and the warning; the old 2-action advice was wrong and
+      is retracted there.
+      → unlocked: Life Score (needs 2+ tracked areas), AI coach recovery context, the Recovery
+      block in reports, the steps achievements, and the HR/HRV half of `/readiness` (§26)
+      once `resting_hr` / `hrv` get their own action pairs.
 - [x] ~~**Push cron.**~~ ✅ **2026-07-31** — live on cron-job.org ("LifeOS push"), every 15 min,
       `POST /api/push/dispatch` with `X-Dispatch-Secret`, 30s timeout. Test run returned
       **200 `{"ok":true,"sent":0,"dropped":0,"weekly_sent":0}`** in 3.9s. Both the train

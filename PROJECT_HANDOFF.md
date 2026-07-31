@@ -142,6 +142,29 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11d (2026-07-31) — PHASE 0 IS CLEARED. Push cron live, steps syncing.**
+- **Push cron is live** — cron-job.org "LifeOS push", every 15 min, `POST /api/push/dispatch`
+  with `X-Dispatch-Secret`, 30s timeout. Verified 200 / `{"ok":true,...}` in 3.9s. Train
+  reminders and the Sunday recap are both armed and the toggles are on. Side benefit: the
+  15-minute ping keeps the free Render tier awake, so cold starts are gone.
+- **Steps are syncing.** Five sessions of "blocked inside Shortcuts" — and the filters were
+  never wrong. Type/Start Date/Limit were all correct from the start.
+  **The actual bug:** the 2-action recipe THIS FILE recommended (post the `Health Samples`
+  variable straight to `/ingest/raw`, let the server sum it) serialises on iOS 26 to **the
+  number of samples**. It sent `8` while Health showed `52` — `stored: true`, no error, a
+  plausible small number written to the DB. Worst failure mode there is.
+  **Fix:** `Find Health Samples → Calculate Statistics (Sum) → POST the Sum variable to
+  /api/health/ingest/raw?metric=steps`. The variable is named **`Sum`** in the picker, not
+  "Statistics". `HEALTH_SYNC_SETUP.md` now leads with this and retracts the old advice.
+- **The server cannot detect this class of error.** A correct Sum and a wrong sample count
+  arrive as the identical payload — a bare number. Only the Health app can say which. So the
+  setup doc now says: check the first run against Health → Steps → today before trusting it.
+- **Also worth keeping:** a background automation can never show iOS's Health permission
+  prompt, so a shortcut that was only ever run on a schedule fails silently forever. Run it
+  by hand once with ▶ first.
+- Left for the user: `resting_hr` / `hrv` / `sleep_hours` each need their own
+  Find→Sum→POST pair (change `?metric=`); only `steps` is wired so far.
+
 **SESSION 11c (2026-07-31) — Sunday weekly recap push shipped. See `FEATURES.md` §27.**
 - **`/push/dispatch` now runs two passes** — train reminders, then weekly recaps. One cron
   drives both; no second schedule. Response gains `weekly_sent`, existing keys unchanged.
