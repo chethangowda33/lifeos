@@ -72,9 +72,18 @@ Health showed **52** steps that moment, across 8 chunks of walking. The phone se
 small and **doesn't move when you walk** — re-run after a walk and the number barely
 changes, because sample *count* grows far slower than step count.
 
-The server cannot detect this. A correct `Sum` and a wrong sample count arrive as the
-identical payload — a bare number. Only the Health app can tell you which one you sent, so
-**always check the first run against Health → Steps → today before trusting it.**
+The server cannot detect this from one request. A correct `Sum` and a wrong sample count
+arrive as the identical payload — a bare number. Only the Health app can tell you which one
+you sent, so **always check the first run against Health → Steps → today before trusting it.**
+
+**Since 2026-07-31 the damage is contained**, though: `steps`, `distance_km` and
+`active_energy` only ever accumulate within a day, so a sync reporting *less* than what is
+already stored is refused and the reply says `"kept_existing": ["steps"]`. A broken
+automation can no longer wipe out a real day — it just stops updating, which is visible.
+(Resting HR, HRV and the rest still overwrite freely; those legitimately go down.)
+
+That also means **you can safely run the sync as often as you like**, and a second phone
+that isn't in your pocket can't clobber the day recorded by the one that is.
 
 Change `?metric=steps` to any field in the table below — `resting_hr`, `active_energy`,
 `sleep_hours`, etc. Add one more **Find Health Samples → Get Contents of URL** pair per

@@ -142,6 +142,23 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11e (2026-07-31) — a resync can no longer erase a real health day. `FEATURES.md` §11.**
+- `steps` / `distance_km` / `active_energy` are **monotonic within a day** — `merge_daily_metrics`
+  keeps the higher value and returns `kept_existing`. Guards BOTH `/health/ingest` and
+  `/health/ingest/raw`. Everything else still overwrites: a falling resting HR is real.
+- Written because of the §11d bug — the sample-count sync stored `8` over `52` with `ok:true`.
+  **Neither bounds nor payload shape can catch that class**: 8 is a legal step count, and a
+  correct `Sum` arrives as a bare number exactly like a wrong count does. The day's own
+  history is the only signal available, so that is what the guard uses.
+- Also closes the two-device case the user asked about — a phone left on a desk can't clobber
+  the day recorded by the phone actually carried.
+- Verified: **19 tests** (17 pure + 2 end-to-end). The e2e ones take a health token, write to
+  **2019-03-14 / 2019-03-15** on `cg3` and delete both in a fixture that also runs *before* the
+  tests, so a failed run can't leave residue. Confirmed clean afterwards — no 2019 rows left.
+  **The two e2e tests must not share a date** — the guard is stateful, and 11,000 steps from
+  the first test would make the second one's 9,000 look like a decrease.
+- Ran with the other new suites against the deployed backend: **71 passing.**
+
 **SESSION 11d (2026-07-31) — PHASE 0 IS CLEARED. Push cron live, steps syncing.**
 - **Push cron is live** — cron-job.org "LifeOS push", every 15 min, `POST /api/push/dispatch`
   with `X-Dispatch-Secret`, 30s timeout. Verified 200 / `{"ok":true,...}` in 3.9s. Train

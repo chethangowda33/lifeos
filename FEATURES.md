@@ -199,7 +199,24 @@ Three gates, all required: zero workouts logged **and** `lifeos:built-manually` 
 
 **Verified.** Ingest stored all 9 metrics · **also wrote through to `sleep_logs`** (7.1h landed in the sleep module) · `/health/daily` returns it · **a bogus token is rejected with 401.**
 
-**Improve.** The last mile is still manual: the user needs the exact Apple Shortcuts recipe (read metrics → POST daily with the header). Android equivalent = Tasker/Macrodroid.
+**Working iPhone recipe (2026-07-31, verified on device).** `Find Health Samples` (Steps, today)
+→ **`Calculate Statistics` (Sum)** → POST the **`Sum`** variable to
+`/api/health/ingest/raw?metric=steps`. Full write-up in `HEALTH_SYNC_SETUP.md`.
+Android equivalent = Tasker/Macrodroid reading Health Connect, posting to plain `/ingest`.
+
+**A resync cannot erase a real day (added 2026-07-31).** `steps`, `distance_km` and
+`active_energy` only accumulate, so a sync reporting *less* than what is already stored for
+that date is never a correction — it is a broken automation or a second device that wasn't
+carried. `merge_daily_metrics` keeps the higher figure and reports the rejection as
+`kept_existing`; both `/ingest` and `/ingest/raw` are guarded. Everything else still
+overwrites, because **a resting HR that falls is the good news, not a bug** — freezing those
+at their worst reading would be the opposite of useful.
+
+Why it exists: the earlier 2-action recipe posted the raw sample list and Shortcuts
+serialised it to the **sample count** — the server stored `8` over a genuine `52` with
+`ok: true`. Bounds checking can't catch that (8 is a legal step count) and neither can the
+payload shape (a correct Sum arrives as a bare number too). Only the day's own history can.
+**17 pure tests + 2 end-to-end** that write to an isolated 2019 date and delete it again.
 
 ---
 
