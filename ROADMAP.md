@@ -29,10 +29,12 @@ data never arrives. **Do this before spending on new features.**
       450 steps through with the user's own token stored fine.
       → unlocks: Life Score (needs 2+ tracked areas), AI coach recovery context,
       the Recovery block in reports, the steps achievements.
-- [ ] **Push cron.** cron-job.org, every 15 min, `POST /api/push/dispatch` with header
-      `X-Dispatch-Secret`. Keys are already on Render; delivery is proven on a real iPhone.
-      **Now the single highest-leverage item on this list** — one setup switches on BOTH the
-      train reminder AND the Sunday weekly recap (§27), which are otherwise built and dormant.
+- [x] ~~**Push cron.**~~ ✅ **2026-07-31** — live on cron-job.org ("LifeOS push"), every 15 min,
+      `POST /api/push/dispatch` with `X-Dispatch-Secret`, 30s timeout. Test run returned
+      **200 `{"ok":true,"sent":0,"dropped":0,"weekly_sent":0}`** in 3.9s. Both the train
+      reminder and the Sunday weekly recap (§27) are now armed — they fire once the user turns
+      the toggles on in Workout settings and subscribes a device. Side benefit: the 15-minute
+      ping keeps the free Render tier awake, so cold starts are gone.
 - [ ] **Tap Share once** after a real workout. The permanent hang is fixed and a 15s timeout
       recovers, but whether the PNG actually generates has never been settled outside a
       headless pane. One tap answers it.
