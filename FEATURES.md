@@ -805,7 +805,60 @@ and spell numbers out — `eighty by eight` → 80 × 8, including tens-ones com
   nowhere. This is the artifact documented in sessions 2/4/7. Reload clears it; the React
   handlers were then driven directly, which is the documented workaround.
 
-## 26. Still not covered
+## 26. Should I train today? (2026-07-31, session 11)
+
+`GET /readiness` + a dashboard card above the Life Score. Muscle recovery, weekly hard sets
+vs MEV/MAV/MRV, plateau/deload flags, last night's sleep and resting HR/HRV were all being
+computed already and nothing combined them into an answer.
+
+### It shows its own working
+The card is a score out of 100, a verdict (`train` / `light` / `rest`), what to train, what
+to leave alone — and every reason with **the points it cost**:
+
+```
+  −25  Slept 5.4h last night
+  −10  Chest is over MRV (24 of 22 hard sets)
+  −10  2 exercises flagged for deload
+   +5  Slept 8.2h — well rested
+```
+
+`score == 100 + sum(effects)`, and there's a test that says so. A verdict you disagree with
+therefore points at a **threshold**, not at a black box — you can argue with "under 6h costs
+25" in a way you can't argue with a sentence an LLM produced.
+
+### Not an LLM call, deliberately
+Every input is a number and the arithmetic is the product. An AI summary here would cost a
+round trip to restate figures the page already has, and would be free to drift from them —
+the same reason `GET /reports` returns computed numbers and the narrative is a separate,
+explicitly-grounded call.
+
+### The scoring
+Starts at 100. Already trained today −35 · sleep <6h −25, <7h −12, ≥8h **+5**, quality ≤2/5
+−8 · 3+ training days in a row −10 · each muscle over MRV −10 (max two named) · any muscle
+near MRV −5 · deload flags −10 · plateaus −5 · resting HR ≥7bpm over your 7-day average −15
+· HRV ≤80% of it −10. Clamped 0-100. **≥70 train · 40-69 light · <40 rest.**
+
+### Two things that are easy to get wrong
+- **A muscle you haven't trained all week doesn't appear in `/workouts/muscle-volume` at
+  all** — it has no rows to aggregate. Those groups are the *freshest* thing available, so
+  they're passed in separately and lead the suggestion. Reading only the endpoint's output
+  would recommend the muscle you trained four days ago over the one you haven't touched.
+- **A week off must not fake a preference.** With nothing trained, all 13 groups are equally
+  fresh and the "top two" are just however `VOLUME_LANDMARKS` is written — so the headline
+  becomes "Train — everything is recovered" rather than naming two at random.
+
+### Health baselines exclude the day being judged
+Resting HR and HRV are compared against the *prior* days in the window. A baseline that
+included today would dilute the very spike being looked for, and a baseline built from a
+single synced day is returned as `None` and never compared.
+
+`_muscle_volume` is now one helper read by both `/workouts/muscle-volume` and `/readiness`,
+so the dashboard bars and the verdict cannot disagree about whether a muscle is cooked.
+**32 tests** (25 pure scoring + 7 endpoint), the pure ones needing no server.
+
+---
+
+## 27. Still not covered
 
 Accurate as of session 9 (challenges). Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is

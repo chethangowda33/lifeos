@@ -176,9 +176,24 @@ def test_rest_verdict_says_rest_even_when_muscles_are_available():
 
 
 def test_headline_names_the_muscles_when_training():
-    assert score_of(untrained=["quads", "hamstrings"])["headline"] == "Train — quads or hamstrings"
-    light = score_of(untrained=["quads"], trained_today=True)
+    r = score_of(untrained=["quads", "hamstrings"],
+                 muscles=[muscle("chest", 24, "excessive", "worked", 0)])
+    assert r["headline"] == "Train — quads or hamstrings"
+    light = score_of(untrained=["quads"], trained_today=True,
+                     muscles=[muscle("chest", 24, "excessive", "worked", 0)])
     assert light["headline"] == "Train light — quads"
+
+
+def test_a_week_off_does_not_fake_a_preference():
+    """Nothing trained in the window = 13 equally fresh groups, ordered only by
+    however the landmarks table is written. Naming two of them would read as a
+    recommendation with nothing behind it."""
+    r = score_of(untrained=["chest", "back", "shoulders"])
+    assert r["headline"] == "Train — everything is recovered"
+    assert r["train"] == ["chest", "back", "shoulders"]  # still offered as chips
+    # As soon as ANY muscle has been trained the ordering means something again.
+    r2 = score_of(untrained=["quads"], muscles=[muscle("chest", 24, "excessive", "worked", 0)])
+    assert r2["headline"] == "Train — quads"
 
 
 def test_headline_survives_having_nothing_to_suggest():

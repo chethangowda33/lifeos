@@ -66,12 +66,11 @@ Sunday-night push — *"Your week: 4 sessions, 18.4k kg, 2 PRs"* — deep-linkin
 `/reports`. Reuses existing push infra + the reports endpoint. Small.
 **Blocked on the push cron in Phase 0.**
 
-### 3. Should-I-train-today
-Muscle recovery, weekly volume vs MEV/MAV/MRV, plateau and deload flags, sleep and steps are
-all computed already, and nothing puts them together into an answer. One dashboard card:
-*"Chest is at MRV and you slept 5.8h. Legs or rest."* This is the "second brain" promise
-from `CLAUDE.md`, and every input already exists — mostly a scoring function over data we
-have, so it's cheap.
+### 3. ~~Should-I-train-today~~ ✅ **shipped 2026-07-31** — see `FEATURES.md` §26
+`GET /readiness` + a dashboard card. Score out of 100, verdict, what to train, what to avoid,
+and every reason with the points it cost. Not an LLM call — the arithmetic is the product.
+32 tests. **The HR/HRV inputs stay dormant until the steps/health sync in Phase 0 is fixed;**
+the verdict works from training + sleep alone until then.
 
 ### 4. Progress photos + before/after
 In the original vision, never built. Progress has no visual dimension today. Costs more than

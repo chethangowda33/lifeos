@@ -142,6 +142,29 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11b (2026-07-31) — should-I-train-today shipped. See `FEATURES.md` §26.**
+- **`GET /readiness`** + `ReadinessCard` on the dashboard, above the Life Score. Score 0-100 →
+  `train` / `light` / `rest`, plus what to train, what to leave alone, and every reason with
+  the points it cost. `score == 100 + sum(effects)`, and a test says so.
+- **Not an LLM call, on purpose.** Every input is a number; an AI summary would cost a round
+  trip to restate figures the page already holds and would be free to drift from them.
+- **`_muscle_volume` is now one helper** read by `/workouts/muscle-volume` and `/readiness` —
+  a test asserts the two agree, so the dashboard bars can't contradict the verdict.
+- **The trap worth remembering:** a muscle untrained for 7 days has no rows to aggregate, so it
+  is absent from muscle-volume entirely. Those are the freshest groups — they're passed in
+  separately and lead the suggestion. And a full week off must not fake a preference: the
+  headline becomes "everything is recovered" rather than naming two groups at random.
+- **HR/HRV branches are dormant** until the Phase 0 health sync is fixed; sleep + training data
+  carry the verdict alone until then. Baselines exclude the day being judged, and a baseline
+  from a single synced day is `None` and never compared.
+- Verified: **32 tests** (25 pure scoring, run with no server; 7 endpoint contract) — the
+  endpoint ones run **against the deployed Render backend**, because Docker Desktop would not
+  start locally this session. Frontend build clean, 105 frontend tests green. Live output on
+  `cg3` reads correctly (95/100, "2 exercises plateaued", −5).
+- ⚠️ **Not browser-verified.** The card has never been seen rendered — no logged-in session was
+  possible here. It fails safe (the fetch `.catch`es to null and the card returns null), but
+  the layout at 375px is unconfirmed.
+
 **SESSION 11 (2026-07-31) — APK shipped. See `APK_SETUP.md`.**
 - **Sessions 9-10 pushed** (reports, achievements, challenges, quick-log) — that clears the
   last Phase 0 code item. Vercel + Render both redeployed.

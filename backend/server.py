@@ -2439,8 +2439,15 @@ def compute_readiness(
     avoid = [m["muscle_group"] for m in muscles
              if m["zone"] in ("high", "excessive") or m["recovery"] == "worked"][:3]
 
+    # With nothing trained in the window every group is equally fresh, and the
+    # first two are just whatever order the landmarks table happens to be in —
+    # naming them would assert a preference the data doesn't support.
+    everything_fresh = not muscles and bool(untrained)
     if verdict == "rest":
         headline = "Rest today"
+    elif everything_fresh:
+        headline = ("Train light — everything is recovered" if verdict == "light"
+                    else "Train — everything is recovered")
     elif train:
         label = " or ".join(train[:2])
         headline = f"Train light — {label}" if verdict == "light" else f"Train — {label}"
