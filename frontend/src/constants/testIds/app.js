@@ -86,6 +86,7 @@ export const DASHBOARD = {
   recentList: 'dashboard-recent-list',
   recordsCard: 'dashboard-records-card',
   muscleFocus: 'dashboard-muscle-focus',
+  readiness: 'dashboard-readiness',
 };
 
 export const WORKOUT = {

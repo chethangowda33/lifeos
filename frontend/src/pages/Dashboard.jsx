@@ -63,6 +63,7 @@ export default function Dashboard() {
   const [recovery, setRecovery] = useState([]); // muscle recovery status
   const [health, setHealth] = useState(null); // today's watch-synced metrics
   const [lifeScore, setLifeScore] = useState(null);
+  const [readiness, setReadiness] = useState(null); // should I train today?
   const [weeklyTarget, setWeeklyTarget] = useState(4);
   const [loading, setLoading] = useState(true);
 
@@ -71,7 +72,7 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m, mv, hd, ls, ws] = await Promise.all([
+        const [w, s, r, m, mv, hd, ls, ws, rd] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
@@ -82,6 +83,7 @@ export default function Dashboard() {
           // server's UTC default would read the wrong day east of UTC before ~06:00.
           api.get("/life-score", { params: { date: localKey(new Date()) } }).catch(() => ({ data: null })),
           api.get("/workout-settings").catch(() => ({ data: {} })),
+          api.get("/readiness", { params: { date: localKey(new Date()) } }).catch(() => ({ data: null })),
         ]);
         if (!alive) return;
         setWorkouts(w.data || []);
@@ -92,6 +94,7 @@ export default function Dashboard() {
         setHealth(hd.data?.today || null);
         setLifeScore(ls.data || null);
         setWeeklyTarget(ws.data?.weekly_workout_target || 4);
+        setReadiness(rd.data || null);
       } finally {
         if (alive) setLoading(false);
       }
@@ -153,6 +156,9 @@ export default function Dashboard() {
           </p>
         </div>
       </div>
+
+      {/* Should I train today? — the one answer, above the numbers behind it */}
+      <ReadinessCard readiness={readiness} />
 
       {/* Life Score — how today looks across everything actually tracked */}
       <LifeScoreCard score={lifeScore} />
@@ -227,6 +233,88 @@ export default function Dashboard() {
       {/* Muscle focus */}
       <MuscleFocus muscles={derived.muscles} loading={loading} />
     </div>
+  );
+}
+
+/* Should I train today?
+
+   Recovery, weekly volume vs MEV/MAV/MRV, plateau/deload flags, sleep and
+   resting HR were all already computed and never combined into an answer.
+
+   The card shows its own working: every reason carries the points it cost, so
+   a verdict you disagree with points at a threshold, not at a black box. Same
+   rule as the reports narrative — no figure without the number beside it. */
+function ReadinessCard({ readiness }) {
+  if (!readiness) return null;
+
+  const tone = (n) => (n >= 70 ? "text-emerald-400" : n >= 40 ? "text-amber-400" : "text-maroon");
+
+  if (readiness.has_data === false) {
+    return (
+      <Card data-testid={DASHBOARD.readiness} className="p-5">
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">
+          <Gauge className="h-4 w-4 text-maroon" /> Should I train today?
+        </h3>
+        <p className="text-sm text-muted-foreground mt-2">
+          Log a workout or a night&apos;s sleep and this will start answering — recovery,
+          weekly volume and sleep, combined into one call.
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <Card data-testid={DASHBOARD.readiness} className="p-5">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="font-semibold tracking-tight flex items-center gap-2">
+          <Gauge className="h-4 w-4 text-maroon" /> Should I train today?
+        </h3>
+        <span className={`text-sm font-semibold ${tone(readiness.score)}`}>
+          {readiness.score}<span className="text-[11px] text-muted-foreground font-normal">/100</span>
+        </span>
+      </div>
+
+      <p className={`text-xl font-semibold tracking-tight ${tone(readiness.score)}`}>
+        {readiness.headline}
+      </p>
+
+      {readiness.train?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 mt-3">
+          {readiness.train.map((m) => (
+            <span key={m} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1 text-[11px] capitalize">
+              {m}
+            </span>
+          ))}
+        </div>
+      )}
+      {readiness.avoid?.length > 0 && (
+        <p className="text-[11px] text-muted-foreground mt-2">
+          Go easy on: <span className="capitalize">{readiness.avoid.join(" · ")}</span>
+        </p>
+      )}
+
+      {readiness.reasons?.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-border space-y-1.5">
+          {readiness.reasons.map((r, i) => (
+            <div key={i} className="flex items-start gap-2.5 text-xs">
+              <span
+                className={`font-mono shrink-0 w-8 text-right ${
+                  r.effect < 0 ? "text-maroon" : "text-emerald-400"
+                }`}
+              >
+                {r.effect > 0 ? `+${r.effect}` : r.effect}
+              </span>
+              <span className="text-muted-foreground leading-snug">{r.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {readiness.reasons?.length === 0 && (
+        <p className="text-xs text-muted-foreground mt-3">
+          Nothing is holding you back — recovered, under your weekly ceiling, and rested.
+        </p>
+      )}
+    </Card>
   );
 }
 

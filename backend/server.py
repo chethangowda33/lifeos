@@ -2286,12 +2286,14 @@ async def exercise_substitutes(exercise_id: str, user=Depends(get_current_user))
     return {"movement_pattern": pattern, "substitutes": subs[:8]}
 
 
-@api.get("/workouts/muscle-volume")
-async def muscle_volume(user=Depends(get_current_user)):
-    """Weekly hard sets (RPE≥6 or no RPE, excl. warmups) per muscle group vs MEV/MAV/MRV."""
+async def _muscle_volume(uid: str) -> List[Dict[str, Any]]:
+    """Weekly hard sets (RPE≥6 or no RPE, excl. warmups) per muscle group vs
+    MEV/MAV/MRV. The ONE place this is computed — /workouts/muscle-volume and
+    /readiness both read it, so the dashboard and the readiness card can never
+    disagree about whether a muscle is cooked."""
     since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     docs = await db.workout_sessions.find(
-        {"user_id": str(user["_id"]), "created_at": {"$gte": since}}
+        {"user_id": uid, "created_at": {"$gte": since}}
     ).to_list(100)
 
     ex_ids = set()
@@ -2341,6 +2343,197 @@ async def muscle_volume(user=Depends(get_current_user)):
         out.append({"muscle_group": mg, "hard_sets": n, **lm, "zone": zone,
                     "last_trained": lt, "days_since": days, "recovery": recovery})
     return out
+
+
+@api.get("/workouts/muscle-volume")
+async def muscle_volume(user=Depends(get_current_user)):
+    return await _muscle_volume(str(user["_id"]))
+
+
+# ── TRAINING READINESS ────────────────────────────────────────────────────────
+# "Should I train today?" — muscle recovery, weekly volume vs MEV/MAV/MRV,
+# plateau/deload flags, sleep and resting HR/HRV are all computed already and
+# nothing put them together into an answer.
+#
+# Deliberately NOT an LLM call. Every input is a number and the arithmetic IS
+# the product — each reason carries the points it cost, so the card can show its
+# own working and the user can disagree with a threshold rather than with a
+# black box.
+
+
+def compute_readiness(
+    muscles: List[Dict[str, Any]],
+    untrained: List[str],
+    sleep: Optional[Dict[str, Any]],
+    health: Optional[Dict[str, Any]],
+    flags: Dict[str, int],
+    trained_today: bool,
+    streak_days: int,
+) -> Dict[str, Any]:
+    """Score 0-100 → verdict, plus what to train and what to leave alone.
+
+    Pure: no DB access, so the thresholds are directly testable."""
+    score = 100
+    reasons: List[Dict[str, Any]] = []
+
+    def hit(kind: str, effect: int, text: str) -> None:
+        nonlocal score
+        score += effect
+        reasons.append({"kind": kind, "effect": effect, "text": text})
+
+    if trained_today:
+        hit("trained", -35, "You already trained today")
+
+    if sleep and sleep.get("hours") is not None:
+        h = sleep["hours"]
+        if h < 6:
+            hit("sleep", -25, f"Slept {h}h last night")
+        elif h < 7:
+            hit("sleep", -12, f"Slept {h}h last night")
+        elif h >= 8:
+            hit("sleep", 5, f"Slept {h}h — well rested")
+        q = sleep.get("quality")
+        if q is not None and q <= 2:
+            hit("sleep", -8, f"Sleep quality {q}/5")
+
+    if streak_days >= 3:
+        hit("streak", -10, f"{streak_days} training days in a row")
+
+    # Over MRV is the strongest training-side signal — name the muscles, with
+    # the set count, so the number is checkable against the volume bars.
+    for m in [x for x in muscles if x["zone"] == "excessive"][:2]:
+        hit("volume", -10,
+            f"{m['muscle_group'].capitalize()} is over MRV ({m['hard_sets']} of {m['mrv']} hard sets)")
+    high = [m for m in muscles if m["zone"] == "high"]
+    if high:
+        names = ", ".join(m["muscle_group"] for m in high[:2])
+        hit("volume", -5, f"{names.capitalize()} near MRV this week")
+
+    if flags.get("deload"):
+        n = flags["deload"]
+        hit("progression", -10, f"{n} exercise{'s' if n > 1 else ''} flagged for deload")
+    if flags.get("plateau"):
+        n = flags["plateau"]
+        hit("progression", -5, f"{n} exercise{'s' if n > 1 else ''} plateaued")
+
+    if health:
+        rhr, rhr_base = health.get("resting_hr"), health.get("resting_hr_baseline")
+        if rhr and rhr_base and rhr - rhr_base >= 7:
+            hit("hr", -15, f"Resting HR {round(rhr)} bpm vs your {round(rhr_base)} average")
+        hrv, hrv_base = health.get("hrv"), health.get("hrv_baseline")
+        if hrv and hrv_base and hrv <= hrv_base * 0.8:
+            hit("hrv", -10,
+                f"HRV {round(hrv)} ms, {round((1 - hrv / hrv_base) * 100)}% below your average")
+
+    score = max(0, min(100, score))
+    verdict = "train" if score >= 70 else ("light" if score >= 40 else "rest")
+
+    # A muscle with no hard sets in the last 7 days never appears in `muscles` at
+    # all — those are the freshest of the lot, so they lead the suggestion.
+    ready: List[str] = list(untrained)
+    ready += [m["muscle_group"] for m in
+              sorted([m for m in muscles
+                      if m["recovery"] == "fresh" and m["zone"] in ("under", "optimal")],
+                     key=lambda m: -(m["days_since"] or 0))]
+    train = ready[:3]
+    avoid = [m["muscle_group"] for m in muscles
+             if m["zone"] in ("high", "excessive") or m["recovery"] == "worked"][:3]
+
+    if verdict == "rest":
+        headline = "Rest today"
+    elif train:
+        label = " or ".join(train[:2])
+        headline = f"Train light — {label}" if verdict == "light" else f"Train — {label}"
+    else:
+        headline = "Train light" if verdict == "light" else "Train"
+
+    return {
+        "score": score,
+        "verdict": verdict,
+        "headline": headline,
+        "train": train,
+        "avoid": avoid,
+        "reasons": sorted(reasons, key=lambda r: r["effect"]),
+    }
+
+
+@api.get("/readiness")
+async def training_readiness(date: Optional[str] = None, user=Depends(get_current_user)):
+    """Should I train today, and on what?
+
+    `date` is the CALLER'S local day, same as /life-score — sleep is stored
+    against the local date, so a UTC default reads the wrong night for anyone
+    east of UTC between midnight and their offset."""
+    uid = str(user["_id"])
+    if date and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date):
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+    today = date or _today_str()
+    try:
+        day = datetime.strptime(today, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(400, "date must be YYYY-MM-DD")
+
+    muscles = await _muscle_volume(uid)
+    seen = {m["muscle_group"] for m in muscles}
+    untrained = [g for g in VOLUME_LANDMARKS if g not in seen]
+
+    # Last night = today's log (logged on waking) falling back to yesterday's.
+    yesterday = (day - timedelta(days=1)).date().isoformat()
+    sleep_doc = (await db.sleep_logs.find_one({"user_id": uid, "date": today})
+                 or await db.sleep_logs.find_one({"user_id": uid, "date": yesterday}))
+    sleep = ({"date": sleep_doc.get("date"), "hours": sleep_doc.get("hours"),
+              "quality": sleep_doc.get("quality")} if sleep_doc else None)
+
+    # Health: the latest synced day measured against the days BEFORE it. A
+    # baseline that includes today would dilute the very spike we're looking for.
+    since = (day - timedelta(days=7)).date().isoformat()
+    hrows = await db.health_daily.find(
+        {"user_id": uid, "date": {"$gte": since, "$lte": today}}
+    ).to_list(30)
+    health = None
+    if hrows:
+        latest = max(hrows, key=lambda r: r.get("date", ""))
+        prior = [r for r in hrows if r.get("date") != latest.get("date")]
+
+        def baseline(key: str) -> Optional[float]:
+            vals = [r[key] for r in prior if r.get(key) is not None]
+            return round(sum(vals) / len(vals), 1) if vals else None
+
+        health = {
+            "date": latest.get("date"),
+            "steps": latest.get("steps"),
+            "resting_hr": latest.get("resting_hr"), "resting_hr_baseline": baseline("resting_hr"),
+            "hrv": latest.get("hrv"), "hrv_baseline": baseline("hrv"),
+        }
+
+    since14 = (day - timedelta(days=14)).isoformat()
+    sessions = await db.workout_sessions.find(
+        {"user_id": uid, "created_at": {"$gte": since14}}, {"created_at": 1}
+    ).to_list(100)
+    days_trained = {s["created_at"][:10] for s in sessions if s.get("created_at")}
+    trained_today = today in days_trained
+    # Consecutive training days ending today — or ending yesterday, so a rest day
+    # that has only just started doesn't read as a broken streak.
+    streak = 0
+    cursor = day.date() if trained_today else (day - timedelta(days=1)).date()
+    while cursor.isoformat() in days_trained:
+        streak += 1
+        cursor -= timedelta(days=1)
+
+    states = await db.progression_states.find({"user_id": uid}).to_list(500)
+    flags = {"deload": sum(1 for s in states if s.get("deload_flag")),
+             "plateau": sum(1 for s in states if s.get("plateau"))}
+
+    ever = await db.workout_sessions.count_documents({"user_id": uid})
+    out = compute_readiness(muscles, untrained, sleep, health, flags, trained_today, streak)
+    return {
+        **out,
+        "date": today,
+        "has_data": bool(ever or sleep or health),
+        "inputs": {"sleep": sleep, "health": health, "flags": flags,
+                   "trained_today": trained_today, "streak_days": streak,
+                   "muscles": muscles},
+    }
 
 
 # ── LIFE SCORE ────────────────────────────────────────────────────────────────
