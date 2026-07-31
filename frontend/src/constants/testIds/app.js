@@ -77,8 +77,6 @@ export const REPORTS = {
 export const DASHBOARD = {
   root: 'dashboard-root',
   greeting: 'dashboard-greeting',
-  statThisWeek: 'dashboard-stat-this-week',
-  statStreak: 'dashboard-stat-streak',
   statVolume: 'dashboard-stat-volume',
   statWeight: 'dashboard-stat-weight',
   resumeCard: 'dashboard-resume-card',

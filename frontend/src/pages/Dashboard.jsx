@@ -60,7 +60,6 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ total_workouts: 0, total_volume: 0, total_sets: 0, total_duration: 0 });
   const [routines, setRoutines] = useState([]);
   const [bmi, setBmi] = useState(null);
-  const [recovery, setRecovery] = useState([]); // muscle recovery status
   const [health, setHealth] = useState(null); // today's watch-synced metrics
   const [lifeScore, setLifeScore] = useState(null);
   const [readiness, setReadiness] = useState(null); // should I train today?
@@ -72,12 +71,14 @@ export default function Dashboard() {
     (async () => {
       setLoading(true);
       try {
-        const [w, s, r, m, mv, hd, ls, ws, rd] = await Promise.all([
+        // No /workouts/muscle-volume here any more — /readiness carries the same
+        // payload AND says what to do about it, so fetching both was one request
+        // to render the same facts twice.
+        const [w, s, r, m, hd, ls, ws, rd] = await Promise.all([
           api.get("/workouts"),
           api.get("/workouts/stats"),
           api.get("/routines"),
           api.get("/body-metrics/latest").catch(() => ({ data: {} })),
-          api.get("/workouts/muscle-volume").catch(() => ({ data: [] })),
           api.get("/health/daily").catch(() => ({ data: {} })),
           // Send OUR local day — habits/sleep/intake are stored against it, and the
           // server's UTC default would read the wrong day east of UTC before ~06:00.
@@ -90,7 +91,6 @@ export default function Dashboard() {
         setStats(s.data || {});
         setRoutines(r.data || []);
         setBmi(m.data?.bmi?.value ?? null);
-        setRecovery(mv.data || []);
         setHealth(hd.data?.today || null);
         setLifeScore(ls.data || null);
         setWeeklyTarget(ws.data?.weekly_workout_target || 4);
@@ -163,37 +163,22 @@ export default function Dashboard() {
       {/* Life Score — how today looks across everything actually tracked */}
       <LifeScoreCard score={lifeScore} />
 
-      {/* Today band — weekly goal ring + streak + muscle recovery */}
+      {/* Today band — weekly goal ring + streak. Recovery chips moved out: the
+          readiness card above says the same thing and adds what to do about it. */}
       <TodayHero
         weekCount={derived.weekCount}
+        weekVolume={derived.weekVolume}
         target={weeklyTarget}
         streak={derived.streak}
-        recovery={recovery}
         loading={loading}
       />
 
       {/* Today's health — from any synced watch/phone (only shows once data lands) */}
       {health && <HealthStrip today={health} />}
 
-      {/* Stat row */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard
-          testId={DASHBOARD.statThisWeek}
-          icon={Activity}
-          label="This week"
-          value={loading ? "—" : derived.weekCount}
-          unit={derived.weekCount === 1 ? "workout" : "workouts"}
-          hint={loading ? "" : `${fmtVol(derived.weekVolume)} kg volume`}
-          accent
-        />
-        <StatCard
-          testId={DASHBOARD.statStreak}
-          icon={Flame}
-          label="Current streak"
-          value={loading ? "—" : derived.streak}
-          unit={derived.streak === 1 ? "day" : "days"}
-          hint={loading ? "" : derived.streak > 0 ? "Keep it alive 🔥" : "Train today to start"}
-        />
+      {/* Stat row — all-time figures only. "This week" and "Current streak"
+          lived here as well as in the hero directly above; the hero won. */}
+      <div className="grid grid-cols-2 gap-3">
         <StatCard
           testId={DASHBOARD.statVolume}
           icon={Dumbbell}
@@ -437,23 +422,14 @@ function LifeScoreCard({ score }) {
   );
 }
 
-/* Today band: weekly goal ring, streak, and muscle recovery chips. */
-function TodayHero({ weekCount, target, streak, recovery, loading }) {
+/* Today band: weekly goal ring + streak, and nothing else.
+
+   It used to carry muscle-recovery chips too, and the stat row below repeated
+   both its numbers. The readiness card now owns "what's recovered" (with the
+   reasoning attached), so this is just: how is the week going. */
+function TodayHero({ weekCount, weekVolume, target, streak, loading }) {
   const pct = Math.min(1, target ? weekCount / target : 0);
   const R = 26, C = 2 * Math.PI * R;
-  const chips = (recovery || []).slice(0, 6).map((m) => {
-    const ready = m.recovery === "fresh";
-    const worked = m.recovery === "worked";
-    return {
-      name: m.muscle_group,
-      label: ready ? "ready" : worked ? "worked today" : "recovering",
-      cls: ready
-        ? "text-emerald-400 bg-emerald-500/10"
-        : worked
-          ? "text-muted-foreground bg-muted"
-          : "text-amber-400 bg-amber-500/10",
-    };
-  });
   return (
     <Card className="p-5">
       <div className="flex items-center gap-5">
@@ -482,21 +458,10 @@ function TodayHero({ weekCount, target, streak, recovery, loading }) {
             {weekCount >= target
               ? "Weekly goal hit — nice work."
               : `${Math.max(0, target - weekCount)} more to hit your weekly goal.`}
+            {!loading && weekVolume > 0 && ` · ${fmtVol(weekVolume)} kg this week`}
           </p>
         </div>
       </div>
-      {chips.length > 0 && (
-        <div className="mt-4 pt-4 border-t border-border">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Recovery</div>
-          <div className="flex flex-wrap gap-1.5">
-            {chips.map((c) => (
-              <span key={c.name} className={`text-[11px] px-2.5 py-1 rounded-full capitalize ${c.cls}`}>
-                {c.name} · {c.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
     </Card>
   );
 }
