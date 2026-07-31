@@ -84,11 +84,11 @@ export const DASHBOARD = {
   recentList: 'dashboard-recent-list',
   recordsCard: 'dashboard-records-card',
   muscleFocus: 'dashboard-muscle-focus',
-  readiness: 'dashboard-readiness',
 };
 
 export const WORKOUT = {
   root: 'workout-root',
+  readiness: 'workout-readiness',
   tabRoutines: 'workout-tab-routines',
   tabPlans: 'workout-tab-plans',
   tabExplore: 'workout-tab-explore',

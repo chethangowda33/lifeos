@@ -23,6 +23,7 @@ import {
 import { WORKOUT, SESSION } from "@/constants/testIds";
 import ExercisePicker from "@/components/ExercisePicker";
 import SplitEditor from "@/features/workout/components/SplitEditor";
+import ReadinessCard from "@/features/workout/components/ReadinessCard";
 import ProgramDetailDialog from "@/components/ProgramDetailDialog";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import SwipeToDismiss from "@/components/SwipeToDismiss";
@@ -290,6 +291,10 @@ export default function Workout() {
       </div>
 
       <WeekStrip workouts={workouts} />
+
+      {/* Should I train today? — sits directly above "next up" on purpose: the
+          verdict and the button you press about it belong in one glance. */}
+      <ReadinessCard />
 
       {loadFailed ? (
         /* Replaces the hero rather than sitting above it — the hero's empty state
