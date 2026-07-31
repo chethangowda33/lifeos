@@ -858,7 +858,48 @@ so the dashboard bars and the verdict cannot disagree about whether a muscle is 
 
 ---
 
-## 27. Still not covered
+## 27. Sunday weekly recap push (2026-07-31, session 11)
+
+A Sunday-evening notification — **"4 sessions · 18.4k kg · 2 PRs"** — that opens `/reports`.
+Reports are pull-only, and nobody opens an app to read a report they don't know exists.
+
+Opt-in per user (`weekly_report_push_enabled`, off by default), in Workout settings under the
+train reminder. Push-only by nature, so the toggle isn't offered when push is unsupported or
+unconfigured.
+
+### It rides the existing cron, it doesn't add a schedule
+`POST /api/push/dispatch` now runs two passes — train reminders, then weekly recaps. One
+external cron (cron-job.org, every 15 min) drives both. **Until that cron exists both stay
+dormant**; nothing else is required to turn this on.
+
+### Idempotent per ISO week, on the user's local Sunday
+`weekly_push_due(settings, local_now)` is pure and returns the week key to stamp, or `None`:
+
+- Sunday only, from **19:00 local**, with a **180-minute** window.
+- Keyed `YYYY-Www` **zero-padded**, from `isocalendar()` — so Sunday 2027-01-03 stamps
+  `2026-W53`, the week it actually closes. Keying it by calendar year would fire twice
+  across the new year.
+- A cron running four times inside the window sends **once**. A cron that misses Sunday
+  entirely sends **nothing** — a stale "your week" on Tuesday is worse than none, the same
+  rule the train reminder's grace window follows.
+
+### A quiet week stamps but doesn't send
+`weekly_push_body` returns `None` for zero sessions and the dispatcher stamps the week
+anyway. Two reasons: a "0 sessions this week" push is a guilt-trip that costs notification
+permission from exactly the people least likely to want it, and without the stamp an
+untrained user would have it retried every 15 minutes until the window closed.
+
+### The numbers come from the report itself
+The body is built from `_report_training` over `_period_bounds("week", 0, local today)` —
+the same call `/reports` makes. The push can't say something the page then contradicts.
+Sending is extracted to one `_send_push` helper shared with the train reminder, so the two
+can't drift on how a dead subscription is dropped.
+
+**19 tests**, all pure except the dispatch-secret guard.
+
+---
+
+## 28. Still not covered
 
 Accurate as of session 9 (challenges). Earlier entries here were superseded — push **has** since been
 delivered to a real iPhone (session 6) and the interval/EMOM timer **was** click-tested and is

@@ -31,7 +31,8 @@ data never arrives. **Do this before spending on new features.**
       the Recovery block in reports, the steps achievements.
 - [ ] **Push cron.** cron-job.org, every 15 min, `POST /api/push/dispatch` with header
       `X-Dispatch-Secret`. Keys are already on Render; delivery is proven on a real iPhone.
-      Without it, reminders never fire on their own. → gates roadmap item 2.
+      **Now the single highest-leverage item on this list** — one setup switches on BOTH the
+      train reminder AND the Sunday weekly recap (§27), which are otherwise built and dormant.
 - [ ] **Tap Share once** after a real workout. The permanent hang is fixed and a 15s timeout
       recovers, but whether the PNG actually generates has never been settled outside a
       headless pane. One tap answers it.
@@ -60,11 +61,10 @@ speak `bench 80 by 8 rpe 8` and have it log the set.
 - **Undo, not confirm.** A confirm step costs a tap in the exact moment we're optimising;
   a mis-parse is recoverable with an undo toast.
 
-### 2. Weekly report push
-Reports are pull-only, and nobody opens an app to read a report they don't know exists. A
-Sunday-night push — *"Your week: 4 sessions, 18.4k kg, 2 PRs"* — deep-linking into
-`/reports`. Reuses existing push infra + the reports endpoint. Small.
-**Blocked on the push cron in Phase 0.**
+### 2. ~~Weekly report push~~ ✅ **shipped 2026-07-31** — see `FEATURES.md` §27
+Sunday 19:00 local, idempotent per ISO week, riding the existing dispatch cron. Opt-in in
+Workout settings. **Dormant until the Phase 0 cron exists** — that one setup now switches on
+both the train reminder and this.
 
 ### 3. ~~Should-I-train-today~~ ✅ **shipped 2026-07-31** — see `FEATURES.md` §26
 `GET /readiness` + a dashboard card. Score out of 100, verdict, what to train, what to avoid,

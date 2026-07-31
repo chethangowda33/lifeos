@@ -142,6 +142,25 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11c (2026-07-31) — Sunday weekly recap push shipped. See `FEATURES.md` §27.**
+- **`/push/dispatch` now runs two passes** — train reminders, then weekly recaps. One cron
+  drives both; no second schedule. Response gains `weekly_sent`, existing keys unchanged.
+- **`weekly_push_due(settings, local_now)` is pure** — Sunday, from 19:00 local, 180-minute
+  window, keyed `YYYY-Www` from `isocalendar()` and stamped on `workout_settings.last_weekly_push`.
+  Zero-padded, ISO year not calendar year (Sunday 2027-01-03 → `2026-W53`, or it double-fires
+  across new year). A cron running 4× in the window sends once; a missed Sunday sends nothing.
+- **A quiet week stamps but doesn't send.** Zero sessions → no body → no push, but the week is
+  still stamped or it retries every 15 minutes all evening.
+- **Body comes from `_report_training`** over the same bounds `/reports` uses — the push must
+  never say something the page contradicts. Sending is one shared `_send_push`.
+- Opt-in toggle in Workout settings (`weekly_report_push_enabled`, off by default), shown only
+  when push is supported + configured. Enabling it re-stamps `tz_offset_minutes`, since the one
+  saved at subscribe time can be a timezone or a DST change out of date.
+- Verified: **19 tests** (18 pure + the dispatch-secret guard), run against the deployed
+  backend along with the readiness suite — **52 passing**. Frontend build clean.
+- ⚠️ **Delivery itself is still unproven for this payload** and cannot be proven from here: it
+  needs the Phase 0 cron, a real Sunday evening, and a subscribed device.
+
 **SESSION 11b (2026-07-31) — should-I-train-today shipped. See `FEATURES.md` §26.**
 - **`GET /readiness`** + `ReadinessCard` on the dashboard, above the Life Score. Score 0-100 →
   `train` / `light` / `rest`, plus what to train, what to leave alone, and every reason with
