@@ -142,6 +142,27 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11 (2026-07-31) — APK shipped. See `APK_SETUP.md`.**
+- **Sessions 9-10 pushed** (reports, achievements, challenges, quick-log) — that clears the
+  last Phase 0 code item. Vercel + Render both redeployed.
+- **Signed APK + AAB built locally** with Bubblewrap (TWA around the live site), outside the
+  repo in `C:\Users\chethan\lifeos-android\`. Package `com.cglifeos.app`, v1.0.0, minSdk 21 /
+  target 36, `POST_NOTIFICATIONS` included so web push works inside the shell.
+- **The real signing SHA-256 is live in `assetlinks.json`** — verified served from the domain,
+  and it matches the APK's signer. That's what removes the URL bar.
+- ⚠️ **`android.keystore` + `KEYSTORE-PASSWORD.txt` are the only irreplaceable artifacts in
+  this project.** Lose them and the app can never be updated by anyone, ever. Not in git
+  (correctly — they're secrets). Backing them up is on the user.
+- Rebuild = `bash C:/Users/chethan/lifeos-android/twa/rebuild.sh`, and is only needed for
+  name/icon/colour/version changes. Features reach the app via `git push`, no re-release.
+- Toolchain gotchas that cost time are written up in `APK_SETUP.md` (broken `@bubblewrap/cli@1.25.0`,
+  SDK layout, build-tools 36.1.0, `appVersion` not `appVersionName`).
+- **Bug fixed:** the workout hero flashed the goal prompt + recommendation for ~a second on
+  mount — `/programs` resolved before `/workouts`, so the empty state briefly saw "programs
+  loaded, zero workouts". Now all four loads settle before the hero renders (skeleton until
+  then). Most visible returning from workout settings. Not browser-verified logged-in; build
+  gate clean.
+
 **SESSION 9 (2026-07-30) — weekly/monthly reports shipped. See `FEATURES.md` §22.**
 - **New route `/reports`** (nav item between Progress and Connections, plus a "Full report →"
   link on the dashboard recap card). One week or one month at a time, stepped with ‹ ›.

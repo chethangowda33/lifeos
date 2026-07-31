@@ -35,8 +35,12 @@ data never arrives. **Do this before spending on new features.**
 - [ ] **Tap Share once** after a real workout. The permanent hang is fixed and a 15s timeout
       recovers, but whether the PNG actually generates has never been settled outside a
       headless pane. One tap answers it.
-- [ ] **Push the three unpushed commits** (`761b571` reports, `616e850` achievements,
-      `daaea8a` challenges). `git push` auto-deploys both Vercel and Render.
+- [x] ~~**Push the three unpushed commits**~~ ✅ **2026-07-31** — pushed all four
+      (`761b571` reports, `616e850` achievements, `daaea8a` challenges, `2787672` quick-log).
+      Vercel + Render both redeployed.
+- [ ] **Sideload the APK and back up the keystore.** Both files in
+      `C:\Users\chethan\lifeos-android\` (`android.keystore` + `KEYSTORE-PASSWORD.txt`) —
+      lose them and the app can never be updated. See `APK_SETUP.md`.
 
 ---
 
