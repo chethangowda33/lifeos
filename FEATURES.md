@@ -50,18 +50,19 @@ days.forEach((d, i) => {
 
 | Element | Source |
 |---|---|
-| Which plan | **`plans[0]` only** — plans 2+ are invisible to it |
+| Which plan | `activePlan(plans)` — the plan containing your **most recently completed day**; first plan when nothing is trained yet |
 | Fallback | `routines[0]` if no plan exists |
 | `rested 4d` | `daysSince(last_completed_at)`, floored |
 | `~63 min` | `estimateSessionMinutes(workouts, …)` — **learned** from your real sessions, falls back to `max(15, totalSets × 3.5)` |
 | Cooldown | If `daysSince < cooldown_days` (default 7) → `window.confirm` "Train it again anyway?" |
 | `Trained today ✓` | Any workout dated today; card still starts the same day |
 
-**Honest read (updated 2026-07-31): two of the three complaints below are now stale.** Recovery
-*is* used — `suggestedDayIndex(days, recovery)` prefers the day you're most recovered for — and the
-duration estimate *does* learn, via `estimateSessionMinutes(workouts, …)` which reports whether the
-figure is `learned`. **What is still true: it reads `plans[0]` only, so every plan after the first is
-invisible to it.**
+**Honest read (updated 2026-07-31): all three original complaints are now addressed.** Recovery
+*is* used — `suggestedDayIndex(days, recovery)` prefers the day you're most recovered for — the
+duration estimate *does* learn via `estimateSessionMinutes(workouts, …)` (which reports whether the
+figure is `learned`), and the hero no longer reads `plans[0]`: `activePlan()` follows the plan
+containing your most recently completed day. Build a new split and train it, and the hero switches
+to it on its own; the card names the plan, so the switch is visible.
 
 ### 2b. "Recommended for you" (fresh accounts only)
 
@@ -76,9 +77,10 @@ Three gates, all required: zero workouts logged **and** `lifeos:built-manually` 
 **Verified.** Volume matches a hand-computed `Σ kg×reps` (4080.0 = 4080.0) · e1rm stored per set (Epley) · RPE, set types and notes all round-trip · `/previous` returns the session · records, history, muscle-volume and progression all update · edit recomputes volume and preserves the date.
 
 **Improve.**
-1. **NEXT UP reads `plans[0]` only** — every plan after the first is invisible to the hero. The other
-   two parts of this item (use recovery data, learn duration) are **done**; see §2a. A user with two
-   plans gets suggestions from one of them and no indication why.
+1. ~~**Make NEXT UP actually smart.**~~ **Done 2026-07-31** — recovery-aware day choice, learned
+   duration, and `activePlan()` multi-plan support all landed; see §2a. What it still won't do is
+   mix days *across* plans, which is deliberate: suggesting a day from a split you abandoned would
+   be worse than ignoring it.
 2. Session `mode="edit"` was deliberately skipped (draft/resume/timer logic is fragile) — the dialog covers the gap.
 3. Share-card extras not built: multiple variants, carousel, "Workout Link", "Copy Text".
 
