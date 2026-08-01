@@ -67,7 +67,8 @@ Workout settings. **Dormant until the Phase 0 cron exists** — that one setup n
 both the train reminder and this.
 
 ### 3. ~~Should-I-train-today~~ ✅ **shipped 2026-07-31** — see `FEATURES.md` §26
-`GET /readiness` + a dashboard card. Score out of 100, verdict, what to train, what to avoid,
+`GET /readiness` + a card on the **Workout** page (the roadmap said dashboard; that was wrong —
+it's a decision, and it belongs next to the button you press). Score out of 100, verdict, what to train, what to avoid,
 and every reason with the points it cost. Not an LLM call — the arithmetic is the product.
 32 tests. **The HR/HRV inputs stay dormant until the steps/health sync in Phase 0 is fixed;**
 the verdict works from training + sleep alone until then.

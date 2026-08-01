@@ -142,6 +142,31 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11f (2026-07-31) — dashboard rethought. Readiness moved to Workout.**
+- **`ReadinessCard` now lives on the Workout page**, directly above the "next up" hero, in
+  `features/workout/components/ReadinessCard.jsx`. It is a **decision, not a status**, and on
+  the dashboard it was split from the button you press about it — the app could say "chest is
+  over MRV, train legs" on one screen while offering Push Day A on another. It self-fetches
+  like `WeeklyRecap` and renders nothing if `/readiness` fails, so it needs nothing from the
+  host page's load orchestration.
+- **The dashboard lost four sections that duplicated Progress**: volume chart, recent-workouts
+  list, PR shelf, muscle-focus bars. Progress already has `VolumeChart`, `PRShelf`, the workout
+  list, and the weekly muscle-volume bars + `MuscleHeatmap` — all better. Half the dashboard was
+  a second, worse analytics page. **Verified against `Progress.jsx` before deleting**, not
+  against the docs.
+- **Also deduped earlier in the session**: week count and streak were in the hero ring AND in
+  their own stat cards below it (4 stat cards → 2, weekly volume folded into the hero subtitle);
+  the hero's recovery chips went with the readiness card. `/workouts/muscle-volume` is no longer
+  fetched by the dashboard at all.
+- **Dashboard is now six sections**: greeting (links to Progress) · Life Score · week band ·
+  health strip · two all-time stats · weekly AI recap · resume. Recharts is no longer imported
+  there. Orphaned testids removed rather than left pointing at deleted elements.
+- **The rule to keep:** a dashboard answers *"how am I doing"* and offers one way in. Status,
+  not workspace. If a new widget is a decision or a deep-dive, it belongs on the page that owns
+  the thing.
+- Verified: build clean, 105 frontend tests green. ⚠️ **Still never seen rendered** — no
+  logged-in browser session is possible here.
+
 **SESSION 11e (2026-07-31) — a resync can no longer erase a real health day. `FEATURES.md` §11.**
 - `steps` / `distance_km` / `active_energy` are **monotonic within a day** — `merge_daily_metrics`
   keeps the higher value and returns `kept_existing`. Guards BOTH `/health/ingest` and

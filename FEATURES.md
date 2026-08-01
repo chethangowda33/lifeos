@@ -222,7 +222,7 @@ payload shape (a correct Sum arrives as a bare number too). Only the day's own h
 
 ## 12. Dashboard, Progress, Admin
 
-- **Dashboard** — TodayHero (weekly-goal ring, streak, muscle-recovery chips), stat cards, weekly AI recap, volume chart, records, health strip, first-run onboarding wizard. Only **2 click targets** — it is almost entirely passive.
+- **Dashboard** (reworked 2026-07-31) — six sections: greeting → Life Score → week band (goal ring + streak + weekly volume) → health strip (with sync age) → two all-time stats → weekly AI recap → resume. **A dashboard answers "how am I doing" and offers one way in — status, not workspace.** The volume chart, recent list, PR shelf and muscle-focus bars were deleted: Progress already owns all four, better. The muscle-recovery chips went with the readiness card to Workout. Week count and streak were being shown twice (hero ring *and* their own stat cards) — 4 stat cards down to 2. Still **almost entirely passive**. If a new widget is a *decision* or a *deep-dive*, it belongs on the page that owns the thing.
 - **Progress** — stat boxes, 10-week volume area chart, PR trophy shelf, calendar, muscle heatmap, strength standards, history, edit/delete a workout.
 - **Admin** — `GET /admin/users` (+workout_count), `GET /admin/stats`. Triple-gated: nav link, route redirect, API 403. **Zero click handlers — read-only.** No promote/demote/disable/delete-user actions exist.
 
@@ -824,9 +824,17 @@ and spell numbers out — `eighty by eight` → 80 × 8, including tens-ones com
 
 ## 26. Should I train today? (2026-07-31, session 11)
 
-`GET /readiness` + a dashboard card above the Life Score. Muscle recovery, weekly hard sets
-vs MEV/MAV/MRV, plateau/deload flags, last night's sleep and resting HR/HRV were all being
-computed already and nothing combined them into an answer.
+`GET /readiness` + a card on the **Workout** page, directly above the "next up" hero. Muscle
+recovery, weekly hard sets vs MEV/MAV/MRV, plateau/deload flags, last night's sleep and
+resting HR/HRV were all being computed already and nothing combined them into an answer.
+
+### Why it isn't on the dashboard
+It shipped there first, and that was wrong. This is a **decision**, and the dashboard is a
+status surface — so the app could say *"chest is over MRV, train legs"* on one screen while
+offering you Push Day A on another, neither referencing the other. The verdict and the button
+you press about it have to be in one glance. `features/workout/components/ReadinessCard.jsx`
+self-fetches (like the dashboard's `WeeklyRecap`) and renders nothing if the request fails, so
+it can be dropped on any page without touching that page's load orchestration.
 
 ### It shows its own working
 The card is a score out of 100, a verdict (`train` / `light` / `rest`), what to train, what
