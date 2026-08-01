@@ -156,6 +156,23 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 
 ## 7. Open threads / pending
 
+**SESSION 11g (2026-07-31) — the health-sync recipe is now in the app, not just the docs.**
+- `Connections.jsx` shipped guidance that produced the broken shortcut (*"Get Health Sample →
+  Get Contents of URL with JSON"*). It now carries the **verified three-action recipe**, a
+  copyable `/health/ingest/raw?metric=…` URL per metric, and the right statistic for each —
+  **Average for resting HR and HRV, Sum for the rest**, because summing a heart rate is
+  meaningless.
+- Both traps are stated in the UI, not only in `HEALTH_SYNC_SETUP.md`: posting the
+  `Health Samples` variable sends the **sample count** and still reports `stored: true`, and a
+  **background automation can never show the iOS Health permission prompt**.
+- `rawUrl(metric)` is derived from `API_BASE` the same way `ingestUrl` already was, so it is
+  correct in local dev (absolute) and prod (origin + `/api`).
+- ⚠️ **This is the app's weakest onboarding path** — the first thing a new user hits, and the
+  only feature whose setup happens entirely outside the app. Keep the in-app copy and
+  `HEALTH_SYNC_SETUP.md` in step; they drifted once and it cost a user an hour.
+- Only `steps` is wired on the user's phone so far. Sleep and resting HR are the two worth
+  adding next — both feed `/readiness`, whose sleep and HR branches are otherwise dormant.
+
 **SESSION 11f (2026-07-31) — dashboard rethought. Readiness moved to Workout.**
 - **`ReadinessCard` now lives on the Workout page**, directly above the "next up" hero, in
   `features/workout/components/ReadinessCard.jsx`. It is a **decision, not a status**, and on

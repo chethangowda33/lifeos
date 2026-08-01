@@ -204,6 +204,14 @@ Three gates, all required: zero workouts logged **and** `lifeos:built-manually` 
 `/api/health/ingest/raw?metric=steps`. Full write-up in `HEALTH_SYNC_SETUP.md`.
 Android equivalent = Tasker/Macrodroid reading Health Connect, posting to plain `/ingest`.
 
+**The Connections page now carries that recipe itself** — the three actions, a copyable
+`/ingest/raw?metric=…` URL per metric with the right statistic for each (Average for heart
+rate, Sum for the rest), and both traps stated in the UI: posting `Health Samples` sends the
+sample *count* and still reports success, and a background automation can never show the iOS
+Health permission prompt. The page previously said *"Get Health Sample → Get Contents of URL
+with JSON"*, which is the recipe that fails. **This is the app's weakest onboarding path and
+the first thing a new user hits — keep the in-app copy and `HEALTH_SYNC_SETUP.md` in step.**
+
 **A resync cannot erase a real day (added 2026-07-31).** `steps`, `distance_km` and
 `active_energy` only accumulate, so a sync reporting *less* than what is already stored for
 that date is never a correction — it is a broken automation or a second device that wasn't
