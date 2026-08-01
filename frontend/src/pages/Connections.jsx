@@ -17,6 +17,17 @@ function CopyButton({ text }) {
   );
 }
 
+/* The verified Shortcuts recipe, per metric. Each needs its own trio of actions;
+   `stat` differs because summing a heart rate is meaningless. */
+const RECIPE = [
+  { metric: "steps", sample: "Steps", stat: "Sum" },
+  { metric: "resting_hr", sample: "Resting Heart Rate", stat: "Average" },
+  { metric: "hrv", sample: "Heart Rate Variability", stat: "Average" },
+  { metric: "active_energy", sample: "Active Energy", stat: "Sum" },
+  { metric: "distance_km", sample: "Walking + Running Distance", stat: "Sum" },
+  { metric: "sleep_hours", sample: "Sleep Analysis", stat: "Sum", note: "in minutes — divide by 60 first" },
+];
+
 export default function Connections() {
   const [conn, setConn] = useState(null);
   const [daily, setDaily] = useState(null);
@@ -47,9 +58,10 @@ export default function Connections() {
   };
 
   // API_BASE is absolute in local dev (http://host:8001/api) but relative in prod (/api via proxy).
-  const ingestUrl = /^https?:\/\//.test(API_BASE)
-    ? `${API_BASE}/health/ingest`
-    : `${window.location.origin}${API_BASE}/health/ingest`;
+  const apiRoot = /^https?:\/\//.test(API_BASE) ? API_BASE : `${window.location.origin}${API_BASE}`;
+  const ingestUrl = `${apiRoot}/health/ingest`;
+  // The /raw variant takes Shortcuts' output directly and sums it server-side.
+  const rawUrl = (metric) => `${apiRoot}/health/ingest/raw?metric=${metric}`;
   const token = conn?.token || "";
   const masked = token ? token.slice(0, 4) + "•".repeat(Math.max(0, token.length - 8)) + token.slice(-4) : "";
   const today = daily?.today;
@@ -172,11 +184,53 @@ export default function Connections() {
             </p>
           </div>
           <div>
-            <div className="font-medium flex items-center gap-1.5"><span className="text-maroon">iPhone</span></div>
+            <div className="font-medium flex items-center gap-1.5">
+              <span className="text-maroon">iPhone</span> — Shortcuts, verified recipe
+            </div>
             <p className="text-muted-foreground text-[13px] mt-0.5">
-              Use the <b>Shortcuts</b> app: “Get Health Sample” for steps/sleep → “Get Contents of URL” (POST) with the
-              header + JSON. Add a Personal Automation to run each morning.
+              Automation → Time of Day → 11:30 PM, Daily, <b>Ask Before Running OFF</b>. Three actions,
+              one set per metric:
             </p>
+            <ol className="mt-2 space-y-1 text-[13px] text-muted-foreground list-decimal pl-4">
+              <li><b className="text-foreground">Find Health Samples</b> — Type = the metric, Start Date <i>is today</i>, Limit off</li>
+              <li><b className="text-foreground">Calculate Statistics</b> — the operation from the table below</li>
+              <li>
+                <b className="text-foreground">Get Contents of URL</b> — POST, header{" "}
+                <code className="text-xs text-foreground">X-Health-Token</code>, Request Body ={" "}
+                <b className="text-foreground">File</b> → pick the <b className="text-foreground">Sum</b>{" "}
+                (or <b className="text-foreground">Average</b>) variable from step 2
+              </li>
+            </ol>
+
+            <p className="text-[13px] mt-2 rounded-lg border border-[hsl(var(--maroon)/0.35)] bg-maroon/5 px-3 py-2">
+              <b className="text-foreground">Post the Sum, never “Health Samples”.</b>{" "}
+              <span className="text-muted-foreground">
+                That variable serialises to the <i>number of samples</i>, not the total — it stores a
+                small, believable, wrong number and reports success. Check your first run against the
+                Health app before trusting it.
+              </span>
+            </p>
+            <p className="text-muted-foreground text-[13px] mt-2">
+              Run it once by hand with ▶ before relying on the schedule: a background automation can
+              never show iOS&apos;s Health permission prompt, so a schedule-only shortcut fails silently
+              forever. Add a <b>Quick Look</b> at the end while setting up to see the server&apos;s reply.
+            </p>
+
+            <div className="mt-3 space-y-1.5">
+              {RECIPE.map((r) => (
+                <div key={r.metric} className="rounded-lg border border-border bg-muted/30 px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-[13px] min-w-0">
+                      <b className="text-foreground">{r.sample}</b>
+                      <span className="text-muted-foreground"> · {r.stat}</span>
+                      {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+                    </div>
+                    <CopyButton text={rawUrl(r.metric)} />
+                  </div>
+                  <code className="text-[11px] text-muted-foreground break-all">{rawUrl(r.metric)}</code>
+                </div>
+              ))}
+            </div>
           </div>
           <div>
             <div className="font-medium flex items-center gap-1.5"><span className="text-maroon">Any platform</span></div>
