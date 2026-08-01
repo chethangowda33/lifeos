@@ -80,10 +80,6 @@ export const DASHBOARD = {
   statVolume: 'dashboard-stat-volume',
   statWeight: 'dashboard-stat-weight',
   resumeCard: 'dashboard-resume-card',
-  volumeChart: 'dashboard-volume-chart',
-  recentList: 'dashboard-recent-list',
-  recordsCard: 'dashboard-records-card',
-  muscleFocus: 'dashboard-muscle-focus',
 };
 
 export const WORKOUT = {

@@ -8,11 +8,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
-  Area, AreaChart, ResponsiveContainer, XAxis, YAxis, Tooltip,
-} from "recharts";
-import {
-  Dumbbell, Flame, TrendingUp, Scale, Trophy, Play, ArrowRight,
-  Activity, Timer, Sparkles, Footprints, HeartPulse, Gauge, Droplets, Route,
+  Dumbbell, Flame, Scale, Play, ArrowRight,
+  Activity, Sparkles, Footprints, HeartPulse, Gauge, Droplets, Route,
 } from "lucide-react";
 import { DASHBOARD } from "@/constants/testIds";
 
@@ -150,7 +147,8 @@ export default function Dashboard() {
             Hello, {firstName}.
           </h1>
           <p className="text-muted-foreground mt-2 max-w-xl">
-            Here&apos;s your training at a glance — momentum, records, and what&apos;s next.
+            Where you stand today. <Link to="/progress" className="text-maroon hover:underline">Progress →</Link>
+            {" "}has the charts, records and full history.
           </p>
         </div>
       </div>
@@ -198,20 +196,11 @@ export default function Dashboard() {
 
       <WeeklyRecap />
 
-      {/* Resume + Volume chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <ResumeCard routine={resumeRoutine} hasHistory={workouts.length > 0} />
-        <VolumeChartCard weeks={derived.weeks} loading={loading} empty={workouts.length === 0} />
-      </div>
-
-      {/* Recent + Records */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <RecentWorkouts workouts={workouts} loading={loading} />
-        <RecordsCard records={derived.records} loading={loading} />
-      </div>
-
-      {/* Muscle focus */}
-      <MuscleFocus muscles={derived.muscles} loading={loading} />
+      {/* The one way in. The volume chart, recent list, PR shelf and muscle
+          bars that used to sit here were smaller copies of what Progress
+          already owns — a dashboard reports status, it isn't a second
+          analytics page. They're one tap away. */}
+      <ResumeCard routine={resumeRoutine} hasHistory={workouts.length > 0} />
     </div>
   );
 }
@@ -443,58 +432,7 @@ function computeDerived(workouts) {
     cursor.setDate(cursor.getDate() - 1);
   }
 
-  // Weekly volume — last 8 weeks
-  const weeks = [];
-  for (let i = 7; i >= 0; i--) {
-    const ws = new Date(weekStart);
-    ws.setDate(ws.getDate() - i * 7);
-    weeks.push({
-      t: ws.getTime(),
-      label: ws.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
-      volume: 0,
-    });
-  }
-  workouts.forEach((w) => {
-    const t = startOfWeek(new Date(w.created_at)).getTime();
-    const bucket = weeks.find((b) => b.t === t);
-    if (bucket) bucket.volume += w.total_volume_kg || 0;
-  });
-  weeks.forEach((b) => { b.volume = Math.round(b.volume); });
-
-  // Personal records — heaviest completed set per exercise
-  const prByName = {};
-  workouts.forEach((w) => {
-    (w.exercises || []).forEach((ex) => {
-      const name = ex.name || "Exercise";
-      (ex.sets || []).forEach((s) => {
-        if (s.completed && s.kg) {
-          const cur = prByName[name];
-          if (!cur || s.kg > cur.kg) prByName[name] = { name, kg: s.kg, reps: s.reps || 0 };
-        }
-      });
-    });
-  });
-  const records = Object.values(prByName).sort((a, b) => b.kg - a.kg).slice(0, 5);
-
-  // Muscle focus — volume by muscle group, last 7 days
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 7);
-  const muscleMap = {};
-  workouts.forEach((w) => {
-    if (new Date(w.created_at) < cutoff) return;
-    (w.exercises || []).forEach((ex) => {
-      const mg = ex.muscle_group || "other";
-      (ex.sets || []).forEach((s) => {
-        if (s.completed && s.kg && s.reps) muscleMap[mg] = (muscleMap[mg] || 0) + s.kg * s.reps;
-      });
-    });
-  });
-  const muscles = Object.entries(muscleMap)
-    .map(([name, volume]) => ({ name, volume: Math.round(volume) }))
-    .sort((a, b) => b.volume - a.volume)
-    .slice(0, 6);
-
-  return { weekCount, weekVolume, streak, weeks, records, muscles };
+  return { weekCount, weekVolume, streak };
 }
 
 /* ── components ──────────────────────────────────────────────────────────── */
@@ -559,196 +497,3 @@ function ResumeCard({ routine, hasHistory }) {
   );
 }
 
-function VolumeChartCard({ weeks, loading, empty }) {
-  const hasData = weeks.some((w) => w.volume > 0);
-  return (
-    <Card data-testid={DASHBOARD.volumeChart} className="p-5 lg:col-span-2">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
-            <TrendingUp className="h-3.5 w-3.5" />
-            Weekly volume
-          </div>
-          <div className="text-sm text-muted-foreground mt-0.5">Total kg lifted per week · last 8 weeks</div>
-        </div>
-      </div>
-      <div className="h-[200px] mt-4">
-        {loading ? (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Loading…</div>
-        ) : empty || !hasData ? (
-          <div className="h-full flex flex-col items-center justify-center text-center">
-            <Dumbbell className="h-8 w-8 text-[hsl(var(--maroon)/0.6)]" />
-            <p className="text-sm text-muted-foreground mt-2">Your volume trend appears here after your first workout.</p>
-          </div>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={weeks} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id="volFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="hsl(var(--maroon))" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="hsl(var(--maroon))" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis hide domain={[0, "auto"]} />
-              <Tooltip
-                contentStyle={{
-                  background: "hsl(var(--popover))",
-                  border: "1px solid hsl(var(--border))",
-                  borderRadius: 6,
-                  fontSize: 12,
-                  color: "hsl(var(--popover-foreground))",
-                }}
-                labelFormatter={(l) => `Week of ${l}`}
-                formatter={(v) => [`${Number(v).toLocaleString()} kg`, "Volume"]}
-              />
-              <Area
-                type="monotone"
-                dataKey="volume"
-                stroke="hsl(var(--maroon))"
-                strokeWidth={2}
-                fill="url(#volFill)"
-                dot={{ r: 2, fill: "hsl(var(--maroon))" }}
-                activeDot={{ r: 4 }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    </Card>
-  );
-}
-
-function RecentWorkouts({ workouts, loading }) {
-  const recent = workouts.slice(0, 4);
-  return (
-    <Card data-testid={DASHBOARD.recentList} className="p-5 lg:col-span-2">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
-          <Timer className="h-3.5 w-3.5" />
-          Recent workouts
-        </div>
-        {workouts.length > 0 && (
-          <Link to="/progress" className="text-xs text-maroon hover:underline">View all</Link>
-        )}
-      </div>
-      {loading ? (
-        <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
-      ) : recent.length === 0 ? (
-        <div className="py-8 text-center">
-          <p className="text-sm text-muted-foreground">
-            No workouts yet. Hit <span className="text-maroon font-medium">Start workout</span> to log your first session.
-          </p>
-        </div>
-      ) : (
-        <div className="divide-y divide-border">
-          {recent.map((w) => (
-            <div key={w.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-              <div className="min-w-0">
-                <div className="font-medium text-sm truncate">{w.name}</div>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground mt-0.5">
-                  <span>{fmtRelative(w.created_at)}</span>
-                  <span>{fmtDuration(w.duration_seconds)}</span>
-                  <span>{fmtVol(w.total_volume_kg)} kg</span>
-                  <span>{w.completed_sets}/{w.total_sets} sets</span>
-                </div>
-              </div>
-              <div className="hidden sm:flex flex-wrap gap-1 justify-end max-w-[45%]">
-                {(w.exercises || []).slice(0, 2).map((ex, i) => (
-                  <Badge key={i} variant="secondary" className="text-[10px]">{ex.name}</Badge>
-                ))}
-                {(w.exercises || []).length > 2 && (
-                  <Badge variant="outline" className="text-[10px]">+{w.exercises.length - 2}</Badge>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function RecordsCard({ records, loading }) {
-  return (
-    <Card data-testid={DASHBOARD.recordsCard} className="p-5">
-      <div className="flex items-center justify-between gap-2 mb-3">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground">
-          <Trophy className="h-3.5 w-3.5 text-[#f5a623]" />
-          Personal records
-        </div>
-        <Link to="/achievements" className="text-[11px] text-maroon hover:underline">Badges →</Link>
-      </div>
-      {loading ? (
-        <div className="text-sm text-muted-foreground py-6 text-center">Loading…</div>
-      ) : records.length === 0 ? (
-        <div className="py-8 text-center">
-          <Sparkles className="h-7 w-7 mx-auto text-[hsl(var(--maroon)/0.6)]" />
-          <p className="text-sm text-muted-foreground mt-2">Log weighted sets and your top lifts show up here.</p>
-        </div>
-      ) : (
-        <div className="space-y-2.5">
-          {records.map((r, i) => (
-            <div key={r.name} className="flex items-center gap-3">
-              <div className="h-6 w-6 shrink-0 rounded-md bg-[hsl(var(--maroon)/0.1)] text-maroon flex items-center justify-center text-xs font-semibold">
-                {i + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{r.name}</div>
-              </div>
-              <div className="text-sm font-semibold tabular-nums whitespace-nowrap">
-                {r.kg} kg<span className="text-[11px] text-muted-foreground font-normal"> × {r.reps}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
-function MuscleFocus({ muscles, loading }) {
-  const max = Math.max(1, ...muscles.map((m) => m.volume));
-  if (loading || muscles.length === 0) {
-    return (
-      <Card data-testid={DASHBOARD.muscleFocus} className="p-5">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground mb-1">
-          <Activity className="h-3.5 w-3.5" />
-          Muscle focus · last 7 days
-        </div>
-        <p className="text-sm text-muted-foreground py-4 text-center">
-          {loading ? "Loading…" : "Train this week to see which muscle groups you're hitting most."}
-        </p>
-      </Card>
-    );
-  }
-  return (
-    <Card data-testid={DASHBOARD.muscleFocus} className="p-5">
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-widest text-muted-foreground mb-4">
-        <Activity className="h-3.5 w-3.5" />
-        Muscle focus · last 7 days
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3">
-        {muscles.map((m) => (
-          <div key={m.name}>
-            <div className="flex items-center justify-between text-xs mb-1">
-              <span className="capitalize font-medium">{m.name}</span>
-              <span className="text-muted-foreground tabular-nums">{fmtVol(m.volume)} kg</span>
-            </div>
-            <div className="h-2 rounded-full bg-muted overflow-hidden">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[hsl(var(--maroon))] to-[hsl(var(--maroon-hover))] transition-all duration-500"
-                style={{ width: `${Math.max(6, (m.volume / max) * 100)}%`, boxShadow: "0 0 12px -2px hsl(var(--maroon) / 0.5)" }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    </Card>
-  );
-}
