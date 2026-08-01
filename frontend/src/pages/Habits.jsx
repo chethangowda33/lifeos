@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Flame, Check, Trash2, Minus, ListChecks } from "lucide-react";
+import { Plus, Flame, Check, Trash2, Minus, ListChecks, Pencil } from "lucide-react";
 import { sendOrQueue } from "@/lib/offlineQueue";
 import localDate from "@/lib/localDate";
 import LoadError from "@/components/LoadError";
@@ -30,6 +30,7 @@ export default function Habits() {
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editHabit, setEditHabit] = useState(null);
   const days = last14();
 
   const load = async () => {
@@ -82,7 +83,7 @@ export default function Habits() {
           <h1 className="text-4xl font-semibold tracking-tight mt-1">Habits</h1>
           <p className="text-muted-foreground text-sm mt-1">Daily check-ins, streaks, and momentum.</p>
         </div>
-        <Button onClick={() => setDialogOpen(true)} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
+        <Button onClick={() => { setEditHabit(null); setDialogOpen(true); }} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
           <Plus className="h-4 w-4 mr-1.5" /> New habit
         </Button>
       </div>
@@ -96,7 +97,7 @@ export default function Habits() {
           <ListChecks className="h-9 w-9 mx-auto text-maroon" />
           <h3 className="mt-3 text-lg font-semibold">Build your first habit</h3>
           <p className="text-sm text-muted-foreground mt-1 mb-4">Small daily wins compound. Water, reading, steps — start with one.</p>
-          <Button onClick={() => setDialogOpen(true)} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
+          <Button onClick={() => { setEditHabit(null); setDialogOpen(true); }} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
             <Plus className="h-4 w-4 mr-1.5" /> New habit
           </Button>
         </Card>
@@ -159,6 +160,13 @@ export default function Habits() {
                   </button>
                 )}
 
+                <button
+                  onClick={() => { setEditHabit(h); setDialogOpen(true); }}
+                  aria-label={`Edit ${h.name}`}
+                  className="text-muted-foreground/60 hover:text-foreground shrink-0 p-1"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
                 <button onClick={() => remove(h)} aria-label="Delete habit" className="text-muted-foreground/60 hover:text-destructive shrink-0 p-1">
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -168,32 +176,48 @@ export default function Habits() {
         </div>
       )}
 
-      <HabitDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSaved={() => { setDialogOpen(false); load(); }} />
+      <HabitDialog
+        open={dialogOpen}
+        habit={editHabit}
+        onClose={() => setDialogOpen(false)}
+        onSaved={() => { setDialogOpen(false); load(); }}
+      />
     </div>
   );
 }
 
-function HabitDialog({ open, onClose, onSaved }) {
+/* Create AND edit. Editing was impossible until 2026-07-31 — the PUT endpoint
+   existed but nothing called it, so fixing a typo or nudging a target meant
+   delete-and-recreate, which threw away the streak and the whole history. */
+function HabitDialog({ open, habit, onClose, onSaved }) {
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("✅");
   const [type, setType] = useState("check");
   const [target, setTarget] = useState(8);
   const [unit, setUnit] = useState("");
   const [saving, setSaving] = useState(false);
+  const editing = !!habit;
 
   useEffect(() => {
-    if (open) { setName(""); setEmoji("✅"); setType("check"); setTarget(8); setUnit(""); }
-  }, [open]);
+    if (!open) return;
+    setName(habit?.name || "");
+    setEmoji(habit?.emoji || "✅");
+    setType(habit?.type || "check");
+    setTarget(habit?.target ?? 8);
+    setUnit(habit?.unit || "");
+  }, [open, habit]);
 
   const save = async () => {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      await api.post("/habits", {
+      const body = {
         name, emoji, type,
         target: type === "count" ? Number(target) || 1 : null,
         unit: type === "count" ? unit : "",
-      });
+      };
+      if (editing) await api.put(`/habits/${habit.id}`, body);
+      else await api.post("/habits", body);
       onSaved();
     } finally {
       setSaving(false);
@@ -204,7 +228,7 @@ function HabitDialog({ open, onClose, onSaved }) {
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>New habit</DialogTitle>
+          <DialogTitle>{editing ? "Edit habit" : "New habit"}</DialogTitle>
           <DialogDescription>A daily check-in or a target to hit.</DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -250,13 +274,23 @@ function HabitDialog({ open, onClose, onSaved }) {
                 <div className="text-[11px] uppercase tracking-widest text-muted-foreground mb-1">Unit</div>
                 <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="glasses" />
               </div>
+              {/* Completion is judged against the CURRENT target, not the one in
+                  force on the day. Raising it retroactively un-completes past days
+                  and can drop the streak — surprising unless it's said out loud.
+                  Nothing is destroyed, so lowering it back restores them. */}
+              {editing && Number(target) !== Number(habit?.target) && (
+                <p className="col-span-2 text-[11px] text-muted-foreground">
+                  Changing the target re-scores past days — a day counts only if it clears the
+                  current goal. Nothing is deleted, so setting it back restores them.
+                </p>
+              )}
             </div>
           )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button disabled={saving || !name.trim()} onClick={save} className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white">
-            {saving ? "Saving…" : "Create"}
+            {saving ? "Saving…" : editing ? "Save" : "Create"}
           </Button>
         </DialogFooter>
       </DialogContent>
