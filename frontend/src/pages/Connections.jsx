@@ -31,15 +31,22 @@ const RECIPE = [
 export default function Connections() {
   const [conn, setConn] = useState(null);
   const [daily, setDaily] = useState(null);
+  const [sleepLogs, setSleepLogs] = useState([]);
   const [reveal, setReveal] = useState(false);
   const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
 
   const load = async () => {
     try {
-      const [c, d] = await Promise.all([api.get("/health/connection"), api.get("/health/daily")]);
+      const [c, d, sl] = await Promise.all([
+        api.get("/health/connection"),
+        api.get("/health/daily"),
+        // Sleep lands in sleep_logs, not health_daily, so the checklist needs both.
+        api.get("/sleep").catch(() => ({ data: { logs: [] } })),
+      ]);
       setConn(c.data);
       setDaily(d.data);
+      setSleepLogs(sl.data?.logs || []);
       setFailed(false);
     } catch {
       // A blank sync key reads as "you don't have one" — alarming, and it invites
@@ -65,6 +72,16 @@ export default function Connections() {
   const token = conn?.token || "";
   const masked = token ? token.slice(0, 4) + "•".repeat(Math.max(0, token.length - 8)) + token.slice(-4) : "";
   const today = daily?.today;
+
+  /* Which metrics have EVER arrived. Wiring one shortcut per metric is the
+     fiddliest thing in the app, and until now nothing told you which ones you
+     had actually done — so the checklist closes itself. `days` is date-desc,
+     so the first hit is the most recent. */
+  const syncedOn = (metric) => {
+    if (metric === "sleep_hours") return sleepLogs.find((l) => l.source === "sync")?.date || null;
+    return (daily?.days || []).find((d) => d[metric] != null)?.date || null;
+  };
+  const connectedCount = RECIPE.filter((r) => syncedOn(r.metric)).length;
 
   // Core tiles always show; extended ones appear once that metric has synced.
   const TILES = [
@@ -216,20 +233,43 @@ export default function Connections() {
               forever. Add a <b>Quick Look</b> at the end while setting up to see the server&apos;s reply.
             </p>
 
-            <div className="mt-3 space-y-1.5">
-              {RECIPE.map((r) => (
-                <div key={r.metric} className="rounded-lg border border-border bg-muted/30 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-[13px] min-w-0">
-                      <b className="text-foreground">{r.sample}</b>
-                      <span className="text-muted-foreground"> · {r.stat}</span>
-                      {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+            <div className="mt-3 flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-widest text-muted-foreground">
+                Your metrics
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                {loading ? "—" : `${connectedCount} of ${RECIPE.length} connected`}
+              </div>
+            </div>
+            <div className="mt-1.5 space-y-1.5">
+              {RECIPE.map((r) => {
+                const on = syncedOn(r.metric);
+                return (
+                  <div
+                    key={r.metric}
+                    className={`rounded-lg border px-3 py-2 ${
+                      on ? "border-border bg-muted/30" : "border-dashed border-border/60"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-[13px] min-w-0">
+                        <b className="text-foreground">{r.sample}</b>
+                        <span className="text-muted-foreground"> · {r.stat}</span>
+                        {r.note && <span className="text-muted-foreground"> · {r.note}</span>}
+                      </div>
+                      <CopyButton text={rawUrl(r.metric)} />
                     </div>
-                    <CopyButton text={rawUrl(r.metric)} />
+                    <div className="flex items-center justify-between gap-2 mt-0.5">
+                      <code className="text-[11px] text-muted-foreground break-all">{rawUrl(r.metric)}</code>
+                      <span
+                        className={`text-[11px] shrink-0 ${on ? "text-emerald-400" : "text-muted-foreground"}`}
+                      >
+                        {on ? `✓ last ${on}` : "not set up"}
+                      </span>
+                    </div>
                   </div>
-                  <code className="text-[11px] text-muted-foreground break-all">{rawUrl(r.metric)}</code>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
           <div>
