@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **218 tests**, frontend **105 tests**, both green — the backend suite run locally
+Backend **219 tests**, frontend **105 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -51,7 +51,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **218 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **219 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -155,6 +155,23 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11k (2026-07-31) — audited `FEATURES.md`'s own "Improve" list against the code.**
+- A doc that **overstates** remaining work costs as much as one that understates it. Three items
+  read as open; only one was.
+- **Real, now fixed:** `POST /habits/{id}/log` required a body although every field on `HabitLogIn`
+  has a default — bodyless → 422, `{}` → 200. Now `Optional[HabitLogIn] = None`. Tested for all
+  three shapes (no body / JSON content-type with empty body / explicit `{}`).
+- **Stale, now corrected:** "habits are not in the AI coach context" (they are — `build_user_context`
+  feeds 7-day per-habit adherence) and "NEXT UP ignores recovery + never learns duration" (both
+  done: `suggestedDayIndex(days, recovery)`, `estimateSessionMinutes` reports `learned`).
+- **Still genuinely open in §2:** the hero reads **`plans[0]` only**, so a user with two plans gets
+  suggestions from one with no indication why. That's the last real item in the workout module.
+- ⚠️ **Debugging note that cost time twice:** uvicorn `--reload` here takes ~30-60s. A test run too
+  soon silently exercises the OLD code — it produced a false PASS when checking the sleep-quality
+  fix and a false FAIL here. Confirm against `preview_logs` ("Application startup complete") or
+  probe the endpoint directly before believing a result.
+- **219 backend tests** green.
 
 **SESSION 11j (2026-07-31) — audited all 97 routes for orphans; shipped the delete-a-bad-day UI.**
 - Method-aware sweep of every `@api.<verb>` against the frontend. **90 called, 7 not.** Five are
