@@ -5,31 +5,39 @@
 
 ## 0. Start here
 
-**State:** deployed, live, and healthy. Backend **140 tests**, frontend **105 tests**, both green.
-Everything through session 8 is pushed and deployed. **Sessions 9-10 (reports, achievements,
-challenges, quick-log) are committed but NOT pushed.**
+**State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
+Backend **211 tests**, frontend **105 tests**, both green — the backend suite run locally
+against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
-**`ROADMAP.md` is new and is the queue** — what's next, in order, with the free/blocked items
-called out. Read it before picking up work. This file stays the chronological log.
+**`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
 
-**Three things are waiting on the USER, not on code** — none of them are bugs:
-1. **Push cron.** Web push works and has been proven on a real iPhone, but reminders only
-   fire when something POSTs `/api/push/dispatch` with header `X-Dispatch-Secret`. Set up
-   cron-job.org (every 15 min) or the feature stays dormant. Keys are already on Render.
-2. **Tap Share** after a workout on a real phone. The permanent hang is fixed; whether the
-   PNG actually generates could not be settled in a headless pane. One tap answers it.
-3. **Health sync** is blocked *inside Shortcuts on the phone*, not on the server — pushing
-   450 steps through with the user's own token stored fine. Next diagnostic: add **Quick
-   Look** after `Find Health Samples` and read the number.
+**PHASE 0 IS CLEARED — the three long-running user-side blockers are done:**
+1. ~~Push cron~~ ✅ live on cron-job.org, every 15 min, verified 200. Train reminders AND the
+   Sunday weekly recap are both armed. Side effect: the ping keeps the free Render tier awake,
+   so the 30-50s cold start is gone.
+2. ~~Health sync~~ ✅ **steps are flowing.** The bug was never the filters and never the server —
+   the recipe this repo recommended made Shortcuts send the *sample count*. See §7 session 11d
+   and `HEALTH_SYNC_SETUP.md`.
+3. **Tap Share** after a workout — STILL OPEN, and now the only one left. The permanent hang is
+   fixed; whether the PNG actually generates has never been settled outside a headless pane.
+   One tap on a real phone answers it.
 
-**Highest-value remaining work** (nothing is urgent): the **APK** (all prep deployed; remaining
-steps are manual). Reports, achievements and challenges all shipped in session 9 (§7) — that
-clears the roadmap's headline list. The offline queue is deliberately **parked** — the user
-asked to hold it.
+**The APK is built and signed** (session 11). ⚠️ `C:\Users\chethan\lifeos-android\android.keystore`
++ `KEYSTORE-PASSWORD.txt` are the only irreplaceable artifacts in this project — lose them and
+the app can never be updated by anyone, ever.
 
-**The honest recommendation, unchanged for several sessions: use the app in a real gym
-session.** The data layer is audited, every page has been clicked, and the bugs left are
-the kind that only surface mid-set.
+**The build queue is empty.** Roadmap items 1-3 shipped, item 4 (progress photos) was **dropped
+by the user** after costing it out, item 5 (form check) is parked. Nothing is waiting on code.
+
+**⚠️ A standing gap worth knowing:** several 2026-07-31 features — the readiness card, the
+weekly-recap toggle, the reworked dashboard, the rest-timer fix — **have never been seen
+rendered.** No logged-in browser session is possible from the agent side (logging in means
+typing a password, which the assistant won't do). They pass build + tests and fail safe, but
+a human has looked at none of them. Two minutes on a phone closes it.
+
+**The honest recommendation, unchanged for six sessions and now the only thing left: use the
+app in a real gym session.** Six modules, none used under real conditions. Every bug that
+remains is the kind that surfaces on set four with chalk on your hands.
 
 ## 1. What LifeOS is
 Personal life-tracking app for me (chethan), going multi-user (me + a friend, invite-only). Started as a Hevy-style workout tracker with an AI progressive-overload layer; now also has habits, sleep, an AI coach, progress analytics, an admin panel, and a health-sync ingest layer. **It is deployed and LIVE.**
@@ -43,10 +51,16 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **85 passing**. They hit a LIVE backend on :8001, so start it first or every test fails
-  on connection-refused (that is not a regression — check the error before believing it).
-- **Frontend tests:** `cd frontend && CI=true npx craco test --watchAll=false` → **22 passing**
-  (pure analytics functions in `features/progress/`).
+  → **211 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  connection-refused (that is not a regression — check the error before believing it).
+  **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
+  `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
+  `-k "not endpoint and not resync"`-style runs work with nothing running.
+  `REACT_APP_BACKEND_URL=https://lifeos-api-g6hq.onrender.com` points the suite at prod —
+  only do that with **read-only** files (`test_readiness.py`, `test_health_merge.py` clean up
+  after themselves); the others create data.
+- **Frontend tests:** `cd frontend && CI=true npx craco test --watchAll=false` → **105 passing**
+  (pure functions: `features/progress/`, `features/reports/`, `features/workout/lib/`).
 - **Build gate before any push:** `cd frontend && CI=true npx craco build` — Vercel builds with
   `CI=true`, so an ESLint warning fails the deploy.
 - **npm installs:** always use `--legacy-peer-deps` (pre-existing react-day-picker/date-fns@4 peer conflict).
@@ -164,8 +178,10 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 - **The rule to keep:** a dashboard answers *"how am I doing"* and offers one way in. Status,
   not workspace. If a new widget is a decision or a deep-dive, it belongs on the page that owns
   the thing.
-- Verified: build clean, 105 frontend tests green. ⚠️ **Still never seen rendered** — no
-  logged-in browser session is possible here.
+- Verified: build clean, 105 frontend tests green, and the **full backend suite — 211 — run
+  locally against Mongo**, so the session's shared-code edits (`_muscle_volume` extraction,
+  the `push_dispatch` refactor, both ingest paths) are covered, not just the new endpoints.
+  ⚠️ **Still never seen rendered** — no logged-in browser session is possible here.
 
 **SESSION 11e (2026-07-31) — a resync can no longer erase a real health day. `FEATURES.md` §11.**
 - `steps` / `distance_km` / `active_energy` are **monotonic within a day** — `merge_daily_metrics`
