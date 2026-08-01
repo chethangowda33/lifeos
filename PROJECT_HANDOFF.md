@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **219 tests**, frontend **105 tests**, both green — the backend suite run locally
+Backend **219 tests**, frontend **113 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -59,7 +59,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
   `REACT_APP_BACKEND_URL=https://lifeos-api-g6hq.onrender.com` points the suite at prod —
   only do that with **read-only** files (`test_readiness.py`, `test_health_merge.py` clean up
   after themselves); the others create data.
-- **Frontend tests:** `cd frontend && CI=true npx craco test --watchAll=false` → **105 passing**
+- **Frontend tests:** `cd frontend && CI=true npx craco test --watchAll=false` → **113 passing**
   (pure functions: `features/progress/`, `features/reports/`, `features/workout/lib/`).
 - **Build gate before any push:** `cd frontend && CI=true npx craco build` — Vercel builds with
   `CI=true`, so an ESLint warning fails the deploy.
@@ -155,6 +155,22 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11l (2026-07-31) — NEXT UP follows the plan you're actually training. `FEATURES.md` §2a.**
+- The hero read **`plans[0]`**, so every plan after the first was invisible: build a new split,
+  train it all week, and it keeps suggesting days from the old one. Last open item in the workout
+  module.
+- **`features/workout/lib/activePlan.js`** — picks the plan containing your **most recently
+  completed day**; nothing trained → first plan (old behaviour, and the right answer with no
+  evidence). Pure, so it's unit-tested: **8 tests**, including the stale-plan-listed-first case that
+  was the actual bug, and a `Number.isFinite` guard so an unparseable `last_completed_at` can't
+  poison the comparison with `NaN`.
+- **Deliberately NOT "best day across all plans."** Mixing days from a split you abandoned into one
+  you're running is worse than ignoring it. Pick the plan, then the day. The card already prints
+  `{plan.name} · …` so the switch is visible rather than mysterious.
+- **113 frontend tests** (105 → 113), build clean.
+- With this, **all three original NEXT UP complaints are closed** — recovery-aware, learned
+  duration, multi-plan. §2a and the Improve list are updated to match.
 
 **SESSION 11k (2026-07-31) — audited `FEATURES.md`'s own "Improve" list against the code.**
 - A doc that **overstates** remaining work costs as much as one that understates it. Three items
