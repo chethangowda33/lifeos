@@ -170,6 +170,17 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 - ⚠️ **This is the app's weakest onboarding path** — the first thing a new user hits, and the
   only feature whose setup happens entirely outside the app. Keep the in-app copy and
   `HEALTH_SYNC_SETUP.md` in step; they drifted once and it cost a user an hour.
+- **Each recipe row now shows whether that metric has ever arrived** — solid + `✓ last <date>`,
+  or dashed + `not set up`, with an `N of 6 connected` count. Wiring one shortcut per metric is
+  the fiddliest thing in the app and nothing used to say which ones you'd actually done: a user
+  wires steps, assumes "health sync is set up", and never notices sleep and resting HR are empty
+  — so `/readiness` silently scores on training data alone.
+- **Sleep is detected differently** — it lands in `sleep_logs`, not `health_daily`, so it's found
+  via the `source: "sync"` marker the ingest writes. A night logged by hand on the Sleep page
+  correctly does NOT count as connected. `/health/daily` returns `days` date-desc, so the first
+  hit for a metric is its most recent.
+- Verified against real API responses on a local backend (steps + resting HR via `health_daily`,
+  sleep via the sync marker, the other three correctly absent), test rows deleted afterwards.
 - Only `steps` is wired on the user's phone so far. Sleep and resting HR are the two worth
   adding next — both feed `/readiness`, whose sleep and HR branches are otherwise dormant.
 

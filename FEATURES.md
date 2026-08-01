@@ -212,6 +212,13 @@ Health permission prompt. The page previously said *"Get Health Sample → Get C
 with JSON"*, which is the recipe that fails. **This is the app's weakest onboarding path and
 the first thing a new user hits — keep the in-app copy and `HEALTH_SYNC_SETUP.md` in step.**
 
+**Each metric shows whether it is actually connected** (`✓ last <date>` vs `not set up`, with an
+`N of 6 connected` count). Every metric needs its own trio of actions, and nothing used to say
+which ones you'd done — so someone wires steps, assumes health sync is finished, and never
+notices sleep and resting HR are empty while `/readiness` quietly scores on training data alone.
+Sleep is detected via the `source: "sync"` marker in `sleep_logs` rather than `health_daily`, so
+a night logged by hand doesn't count as connected.
+
 **A resync cannot erase a real day (added 2026-07-31).** `steps`, `distance_km` and
 `active_energy` only accumulate, so a sync reporting *less* than what is already stored for
 that date is never a correction — it is a broken automation or a second device that wasn't
