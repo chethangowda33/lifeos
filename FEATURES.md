@@ -124,11 +124,24 @@ Three gates, all required: zero workouts logged **and** `lifeos:built-manually` 
 
 **What it is.** Two types — `check` (toggle) and `count` (target + unit). Emoji, streak, 14-day strip.
 
-**User clicks.** Add habit · tick a check habit · +/− a count habit · edit · delete.
+**User clicks.** Add habit · tick a check habit · +/− a count habit · **edit** (pencil on each card) · delete.
 
 **Can modify.** Name, emoji, type, target, unit.
 
-**Verified.** Both types create · count stores value, stays incomplete below target and **auto-completes at target** · check toggles on **and** off · edit updates name + target · streak and history strip present · delete cascades to `habit_logs` (0 orphans left).
+⚠️ **This entry used to list "edit" as a user click when no edit button existed.** `PUT /habits/{id}`
+was implemented and API-tested from day one, but nothing in the UI ever called it, so the only way
+to change a habit was delete-and-recreate — which threw away the streak and every logged day. The
+button was added **2026-07-31**. Lesson for this file: *verified at the API* is not *reachable by a
+user*, and writing it in the click list hid a real gap for months.
+
+⚠️ **A count habit's completion is judged against the CURRENT target**, not the one in force on the
+day. Log 150 against a 150 goal and you're on a streak; raise the goal to 165 and that day stops
+counting and the streak drops to zero. That is the right semantics — a streak should mean "I hit my
+goal", not "I hit some goal I used to have" — and it is fully reversible, because nothing is
+destroyed: set the target back and the days return. The edit dialog now says so when the target
+actually changes.
+
+**Verified.** Both types create · count stores value, stays incomplete below target and **auto-completes at target** · check toggles on **and** off · **edit from the UI keeps the streak and the log** · switching count → check clears the target · raising a target re-scores history and lowering it restores it · streak and history strip present · delete cascades to `habit_logs` (0 orphans left). 4 tests in `test_habit_edit.py`.
 
 **Improve.**
 - **Habits still are not in the AI coach context** (sleep + health are). The coach is blind to the habit data it should be coaching on.
