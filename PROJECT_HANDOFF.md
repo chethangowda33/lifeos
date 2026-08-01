@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **212 tests**, frontend **105 tests**, both green — the backend suite run locally
+Backend **216 tests**, frontend **105 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -51,7 +51,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **212 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **216 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -155,6 +155,26 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11i (2026-07-31) — habits can be edited. Found by auditing the data-loss pattern.**
+- Swept all **40 `$set` call sites** in `server.py` + `intake.py` for "writes a Pydantic optional
+  unconditionally". Result: `PUT /auth/profile` already filters `None` correctly, and the rest
+  build literal dicts. **No further instances of the bug.** The real finding was different:
+  **`PUT /habits/{id}` existed but nothing in the UI called it.**
+- So editing a habit meant **delete-and-recreate — losing the streak and every logged day.**
+  `HabitDialog` now does both modes; each card gets an always-visible pencil (never
+  `opacity-0 group-hover:*` — invisible on a phone, a recurring bug here).
+- **`target` is written unconditionally on purpose** and must stay that way: this is a
+  full-object PUT and switching count → check has to clear the target. That is the deliberate
+  **opposite** of the ingest rule (§11h) — a PUT carries the whole object, an ingest doesn't.
+  There is a test for each so a future "consistency" fix can't quietly merge them.
+- ⚠️ **Behaviour the tests surfaced, worth knowing:** completion is judged against the
+  **current** target, not the one in force on the day. Log 150 against a 150 goal → streak 1;
+  raise the goal to 165 → that day stops counting and the streak drops to 0. Correct (a streak
+  should mean "I hit my goal") but retroactive and surprising, so the dialog now says so when
+  the target actually changes. Nothing is destroyed — lowering it back restores the days, and
+  a test asserts that round trip.
+- **216 backend tests**, 105 frontend, all green.
 
 **SESSION 11h (2026-07-31) — a sleep sync no longer wipes a hand-rated quality.**
 - `/health/ingest` wrote `"quality": payload.sleep_quality` **unconditionally**. A watch reports
