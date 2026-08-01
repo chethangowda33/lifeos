@@ -239,6 +239,8 @@ delete. Concretely — `/health/ingest` wrote `"quality": payload.sleep_quality`
 so the everyday sleep payload (duration only, because a watch has no 1-5 rating) nulled out
 whatever the user had rated that night by hand, on every single sync.
 
+**Deleting a bad synced day is now a button** (Connections → Recent synced days). The endpoint existed from the start with nothing calling it, and the monotonic guard below made it essential: a wrong HIGH value is sticky by design, so a correct lower resync is refused and clearing the day is the only way back.
+
 **A resync cannot erase a real day (added 2026-07-31).** `steps`, `distance_km` and
 `active_energy` only accumulate, so a sync reporting *less* than what is already stored for
 that date is never a correction — it is a broken automation or a second device that wasn't

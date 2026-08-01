@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **216 tests**, frontend **105 tests**, both green — the backend suite run locally
+Backend **218 tests**, frontend **105 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -51,7 +51,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **216 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **218 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -155,6 +155,24 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11j (2026-07-31) — audited all 97 routes for orphans; shipped the delete-a-bad-day UI.**
+- Method-aware sweep of every `@api.<verb>` against the frontend. **90 called, 7 not.** Five are
+  legitimately external — `GET /` (Render health check), `POST /health/ingest`,
+  `POST /health/ingest/raw` (phone automation), `POST /push/dispatch` (cron) — plus
+  `POST /coach/ingest`, which is admin ops and deliberately has no button (the Admin panel is
+  documented as read-only, zero click handlers).
+- **The real find: `DELETE /health/daily/{date}`.** Its own docstring says it exists because a bad
+  automation run left "no way to clear" wrong numbers — and there was still no way *from the app*.
+  **Today's monotonic guard made that worse**: a wrong HIGH value is sticky by design, because the
+  correct lower resync is refused. Deleting the day became the only route back. Connections now
+  lists recent synced days with a delete each.
+- **Audit method matters.** A naive prefix match reported only 1 orphan — it counted
+  `PUT /habits/{id}` as "called" because `api.get("/habits")` shares the prefix, i.e. it would have
+  missed the very gap found in §11i. Match on **verb + path together**. It still has one known
+  blind spot: a call formatted as `api\n  .get(...)` reads as an orphan (`/readiness` did), so
+  check each hit by hand before believing it.
+- **218 backend tests** green.
 
 **SESSION 11i (2026-07-31) — habits can be edited. Found by auditing the data-loss pattern.**
 - Swept all **40 `$set` call sites** in `server.py` + `intake.py` for "writes a Pydantic optional
