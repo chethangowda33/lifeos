@@ -219,6 +219,13 @@ notices sleep and resting HR are empty while `/readiness` quietly scores on trai
 Sleep is detected via the `source: "sync"` marker in `sleep_logs` rather than `health_daily`, so
 a night logged by hand doesn't count as connected.
 
+**An ingest must never destroy data it wasn't given.** Three bugs of this family surfaced on
+2026-07-31 and the rule is worth stating outright: build the `$set` from what actually arrived,
+not from the full model. Pydantic optionals default to `None`, and a `None` in a `$set` is a
+delete. Concretely — `/health/ingest` wrote `"quality": payload.sleep_quality` unconditionally,
+so the everyday sleep payload (duration only, because a watch has no 1-5 rating) nulled out
+whatever the user had rated that night by hand, on every single sync.
+
 **A resync cannot erase a real day (added 2026-07-31).** `steps`, `distance_km` and
 `active_energy` only accumulate, so a sync reporting *less* than what is already stored for
 that date is never a correction — it is a broken automation or a second device that wasn't

@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **211 tests**, frontend **105 tests**, both green — the backend suite run locally
+Backend **212 tests**, frontend **105 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -51,7 +51,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **211 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **212 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -155,6 +155,21 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11h (2026-07-31) — a sleep sync no longer wipes a hand-rated quality.**
+- `/health/ingest` wrote `"quality": payload.sleep_quality` **unconditionally**. A watch reports
+  duration but almost never a 1-5 rating, so the everyday payload (`sleep_hours` alone) set
+  quality to `null` over whatever the user had rated by hand — every sync, silently. Quality is
+  now written only when the payload carries one.
+- **This is the third bug of the same family today** (steps sample-count, monotonic overwrite,
+  this). The rule now worth stating outright: **an ingest must never be able to destroy data it
+  wasn't given.** Build the `$set` from what actually arrived, not from the full model — Pydantic
+  optionals default to `None`, and `None` in a `$set` is a delete.
+- **Proved the test catches it**: reverted the fix against the live reloading server and the
+  rating came back `null`. A regression test that passes before *and* after is worthless — and
+  note uvicorn's `--reload` needs ~30s+ here, a 4s wait silently tests the old code.
+- The cleanup fixture now clears `sleep_logs` as well as `health_daily` for the scratch dates.
+- **212 backend tests** green.
 
 **SESSION 11g (2026-07-31) — the health-sync recipe is now in the app, not just the docs.**
 - `Connections.jsx` shipped guidance that produced the broken shortcut (*"Get Health Sample →
