@@ -123,11 +123,17 @@ def clean_isolated_day(session, auth_headers):
     """Remove the scratch day before and after, so a failed run can't leave data
     on the shared admin account. Requested explicitly — autouse would drag the
     pure tests above onto a live server for no reason."""
-    for day in (ISOLATED_DAY, ISOLATED_DAY_RAW):
-        session.delete(f"{API}/health/daily/{day}", headers=auth_headers)
+    def wipe():
+        for day in (ISOLATED_DAY, ISOLATED_DAY_RAW):
+            session.delete(f"{API}/health/daily/{day}", headers=auth_headers)
+        # Sleep lives in its own collection and needs deleting by id.
+        for log in session.get(f"{API}/sleep", headers=auth_headers).json().get("logs", []):
+            if log.get("date") in (ISOLATED_DAY, ISOLATED_DAY_RAW):
+                session.delete(f"{API}/sleep/{log['id']}", headers=auth_headers)
+
+    wipe()
     yield
-    for day in (ISOLATED_DAY, ISOLATED_DAY_RAW):
-        session.delete(f"{API}/health/daily/{day}", headers=auth_headers)
+    wipe()
 
 
 def stored_day(session, auth_headers, day=ISOLATED_DAY):
@@ -159,6 +165,31 @@ def test_a_resync_cannot_erase_a_real_day(session, health_headers, auth_headers,
     fourth = ingest({"date": ISOLATED_DAY, "resting_hr": 54})
     assert fourth.json()["kept_existing"] == []
     assert stored_day(session, auth_headers)["resting_hr"] == 54
+
+
+def test_a_sleep_sync_does_not_wipe_a_hand_rated_quality(session, health_headers, auth_headers,
+                                                         clean_isolated_day):
+    """A watch reports duration but almost never a 1-5 rating. Writing quality
+    unconditionally meant every sync nulled out whatever the user had rated that
+    night by hand — silently, forever."""
+    ingest = lambda body: session.post(f"{API}/health/ingest", json=body, headers=health_headers)
+
+    def night():
+        logs = session.get(f"{API}/sleep", headers=auth_headers).json()["logs"]
+        return next((x for x in logs if x["date"] == ISOLATED_DAY), None)
+
+    assert ingest({"date": ISOLATED_DAY, "sleep_hours": 7.4, "sleep_quality": 4}).status_code == 200
+    assert night()["quality"] == 4
+
+    # The everyday case: the automation sends duration only.
+    assert ingest({"date": ISOLATED_DAY, "sleep_hours": 7.9}).status_code == 200
+    after = night()
+    assert after["hours"] == 7.9, "the new duration should still land"
+    assert after["quality"] == 4, "the hand-rated quality was destroyed"
+
+    # ...and a payload that DOES carry a rating still updates it.
+    ingest({"date": ISOLATED_DAY, "sleep_hours": 7.9, "sleep_quality": 2})
+    assert night()["quality"] == 2
 
 
 def test_the_raw_endpoint_is_guarded_too(session, health_headers, auth_headers, clean_isolated_day):

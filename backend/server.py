@@ -1651,12 +1651,15 @@ async def health_ingest(payload: HealthIngestIn, request: Request):
 
     # Sleep → reuse sleep_logs (one night per date)
     if payload.sleep_hours is not None:
-        await db.sleep_logs.update_one(
-            {"user_id": uid, "date": d},
-            {"$set": {"user_id": uid, "date": d, "hours": payload.sleep_hours,
-                      "quality": payload.sleep_quality, "source": "sync"}},
-            upsert=True,
-        )
+        night = {"user_id": uid, "date": d, "hours": payload.sleep_hours, "source": "sync"}
+        # Only write quality when the payload actually carries one. A watch reports
+        # duration but almost never a 1-5 rating, so setting it unconditionally
+        # wrote `null` over whatever the user had rated that night by hand — every
+        # single sync, silently. Same lesson as the monotonic guard above: an
+        # ingest must not be able to destroy data it wasn't given.
+        if payload.sleep_quality is not None:
+            night["quality"] = payload.sleep_quality
+        await db.sleep_logs.update_one({"user_id": uid, "date": d}, {"$set": night}, upsert=True)
 
     return {"ok": True, "date": d,
             "stored": list(daily.keys()) + (["sleep"] if payload.sleep_hours is not None else []),
