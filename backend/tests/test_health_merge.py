@@ -192,6 +192,31 @@ def test_a_sleep_sync_does_not_wipe_a_hand_rated_quality(session, health_headers
     assert night()["quality"] == 2
 
 
+def test_deleting_a_day_is_the_way_back_from_a_stuck_value(session, health_headers, auth_headers,
+                                                           clean_isolated_day):
+    """The monotonic guard makes a wrong HIGH value sticky on purpose — a correct
+    lower resync is refused. Deleting the day is the only route back, which is why
+    it needs to be reachable from the UI and not just curl."""
+    ingest = lambda body: session.post(f"{API}/health/ingest", json=body, headers=health_headers)
+
+    ingest({"date": ISOLATED_DAY, "steps": 250000})           # mis-mapped automation
+    assert ingest({"date": ISOLATED_DAY, "steps": 8000}).json()["kept_existing"] == ["steps"]
+    assert stored_day(session, auth_headers)["steps"] == 250000, "guard holds the wrong value"
+
+    r = session.delete(f"{API}/health/daily/{ISOLATED_DAY}", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["deleted"] == 1
+    assert stored_day(session, auth_headers) is None
+
+    # ...and the correct figure now lands, because there is nothing to beat.
+    ingest({"date": ISOLATED_DAY, "steps": 8000})
+    assert stored_day(session, auth_headers)["steps"] == 8000
+
+
+def test_deleting_a_day_that_isnt_there_is_not_an_error(session, auth_headers):
+    r = session.delete(f"{API}/health/daily/1999-01-01", headers=auth_headers)
+    assert r.status_code == 200 and r.json()["deleted"] == 0
+
+
 def test_the_raw_endpoint_is_guarded_too(session, health_headers, auth_headers, clean_isolated_day):
     """The raw path is the one the iPhone recipe actually uses, so the guard
     matters more here than on the JSON endpoint."""

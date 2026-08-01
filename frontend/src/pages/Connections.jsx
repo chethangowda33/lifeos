@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import api, { API_BASE } from "@/api";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Footprints, HeartPulse, Flame, Watch, Copy, Check, RefreshCw, Eye, EyeOff, Activity, Gauge, Droplets, Route } from "lucide-react";
+import { Footprints, HeartPulse, Flame, Watch, Copy, Check, RefreshCw, Eye, EyeOff, Activity, Gauge, Droplets, Route, Trash2 } from "lucide-react";
 import LoadError from "@/components/LoadError";
 
 function CopyButton({ text }) {
@@ -57,6 +57,12 @@ export default function Connections() {
     }
   };
   useEffect(() => { load(); }, []);
+
+  const removeDay = async (date) => {
+    if (!window.confirm(`Delete synced health data for ${date}? Your automation can write it again.`)) return;
+    await api.delete(`/health/daily/${date}`);
+    load();
+  };
 
   const regenerate = async () => {
     if (!window.confirm("Generate a new key? Your old key stops working and any automation must be updated.")) return;
@@ -147,6 +153,42 @@ export default function Connections() {
 
       {!loading && !daily?.connected && (
         <p className="text-xs text-muted-foreground -mt-2">No data synced yet — follow the setup below to start.</p>
+      )}
+
+      {/* Recent synced days — the escape hatch for a bad automation run.
+          `DELETE /health/daily/{date}` existed from the start with nothing calling
+          it, so a wrong number could only be cleared with curl. That matters more
+          since steps/distance/energy became monotonic: a wrong HIGH value is now
+          sticky, because a correct lower resync is (correctly) refused. Deleting
+          the day is the only way back. */}
+      {!loading && (daily?.days || []).length > 0 && (
+        <Card className="p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold tracking-tight">Recent synced days</h3>
+            <span className="text-[11px] text-muted-foreground">delete a bad sync to re-run it</span>
+          </div>
+          <div className="divide-y divide-border">
+            {(daily?.days || []).slice(0, 7).map((d) => (
+              <div key={d.date} className="flex items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium tabular-nums">{d.date}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">
+                    {TILES.filter((t) => d[t.key] != null)
+                      .map((t) => `${t.fmt ? t.fmt(d[t.key]) : d[t.key]} ${t.label}`)
+                      .join(" · ") || "no metrics"}
+                  </div>
+                </div>
+                <button
+                  onClick={() => removeDay(d.date)}
+                  aria-label={`Delete synced data for ${d.date}`}
+                  className="text-muted-foreground/60 hover:text-destructive shrink-0 p-1"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
 
       {/* Sync key */}
