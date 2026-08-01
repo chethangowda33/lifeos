@@ -1396,7 +1396,15 @@ async def delete_habit(habit_id: str, user=Depends(get_current_user)):
 
 
 @api.post("/habits/{habit_id}/log")
-async def log_habit(habit_id: str, payload: HabitLogIn, user=Depends(get_current_user)):
+async def log_habit(habit_id: str, payload: Optional[HabitLogIn] = None,
+                    user=Depends(get_current_user)):
+    """Tick a check habit / set a count habit's value for a day.
+
+    The body is OPTIONAL. Every field in it already had a default, so requiring
+    the body at all meant `POST /habits/{id}/log` with no body returned 422 while
+    the identical request with `{}` returned 200 — a trap for the offline queue
+    and for any client that isn't this app's own fetch call."""
+    payload = payload or HabitLogIn()
     uid = str(user["_id"])
     habit = await db.habits.find_one({"_id": _oid(habit_id, "Habit not found"), "user_id": uid})
     if not habit:

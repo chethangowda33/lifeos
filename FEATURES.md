@@ -53,11 +53,15 @@ days.forEach((d, i) => {
 | Which plan | **`plans[0]` only** — plans 2+ are invisible to it |
 | Fallback | `routines[0]` if no plan exists |
 | `rested 4d` | `daysSince(last_completed_at)`, floored |
-| `~63 min` | `max(15, totalSets × 3.5)` — a **constant**, not learned |
+| `~63 min` | `estimateSessionMinutes(workouts, …)` — **learned** from your real sessions, falls back to `max(15, totalSets × 3.5)` |
 | Cooldown | If `daysSince < cooldown_days` (default 7) → `window.confirm` "Train it again anyway?" |
 | `Trained today ✓` | Any workout dated today; card still starts the same day |
 
-**Honest read: this is a rotation tracker, not intelligence.** It ignores the muscle-recovery data the app *already computes* at `/workouts/muscle-volume`, ignores every plan after the first, and the duration estimate never learns from your real session times.
+**Honest read (updated 2026-07-31): two of the three complaints below are now stale.** Recovery
+*is* used — `suggestedDayIndex(days, recovery)` prefers the day you're most recovered for — and the
+duration estimate *does* learn, via `estimateSessionMinutes(workouts, …)` which reports whether the
+figure is `learned`. **What is still true: it reads `plans[0]` only, so every plan after the first is
+invisible to it.**
 
 ### 2b. "Recommended for you" (fresh accounts only)
 
@@ -72,7 +76,9 @@ Three gates, all required: zero workouts logged **and** `lifeos:built-manually` 
 **Verified.** Volume matches a hand-computed `Σ kg×reps` (4080.0 = 4080.0) · e1rm stored per set (Epley) · RPE, set types and notes all round-trip · `/previous` returns the session · records, history, muscle-volume and progression all update · edit recomputes volume and preserves the date.
 
 **Improve.**
-1. **Make NEXT UP actually smart** — it already has muscle-recovery data; use it. Also read all plans, and learn duration from real sessions. *Highest-value item in the module.*
+1. **NEXT UP reads `plans[0]` only** — every plan after the first is invisible to the hero. The other
+   two parts of this item (use recovery data, learn duration) are **done**; see §2a. A user with two
+   plans gets suggestions from one of them and no indication why.
 2. Session `mode="edit"` was deliberately skipped (draft/resume/timer logic is fragile) — the dialog covers the gap.
 3. Share-card extras not built: multiple variants, carousel, "Workout Link", "Copy Text".
 
@@ -144,8 +150,12 @@ actually changes.
 **Verified.** Both types create · count stores value, stays incomplete below target and **auto-completes at target** · check toggles on **and** off · **edit from the UI keeps the streak and the log** · switching count → check clears the target · raising a target re-scores history and lowering it restores it · streak and history strip present · delete cascades to `habit_logs` (0 orphans left). 4 tests in `test_habit_edit.py`.
 
 **Improve.**
-- **Habits still are not in the AI coach context** (sleep + health are). The coach is blind to the habit data it should be coaching on.
-- `POST /habits/{id}/log` with **no request body at all** → 422. All fields are optional, so an empty body should be valid; the frontend must always send `{}`. Latent trap for the offline queue and any future client.
+- ~~Habits are not in the AI coach context.~~ **Stale — they are.** `build_user_context()` has fed
+  the coach 7-day per-habit adherence (hits/7 at target, plus the average for count habits) for some
+  time; this entry simply was never updated. Verified in the source 2026-07-31.
+- ~~`POST /habits/{id}/log` with no request body → 422.~~ **Fixed 2026-07-31.** The body is now
+  `Optional[HabitLogIn] = None`; a bodyless POST is a valid "tick today". Tested for all three
+  shapes (no body, `Content-Type: application/json` with an empty body, explicit `{}`).
 
 ---
 

@@ -108,6 +108,26 @@ def test_switching_a_count_habit_to_a_check_clears_the_target(session, auth_head
     assert after["target"] is None, "a leftover target would make a check habit unsatisfiable"
 
 
+def test_logging_works_with_no_request_body(session, auth_headers, auth_headers_check_habit):
+    """Every field on HabitLogIn has a default, so a bodyless POST is a perfectly
+    valid "tick today". It used to 422 while `{}` returned 200 — a trap for the
+    offline queue, which replays whatever body it stored."""
+    hid = auth_headers_check_habit
+    r = session.post(f"{API}/habits/{hid}/log", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    habits = session.get(f"{API}/habits", headers=auth_headers).json()
+    assert next(x for x in habits if x["id"] == hid)["today_done"] is True
+
+
+@pytest.fixture
+def auth_headers_check_habit(session, auth_headers):
+    r = session.post(f"{API}/habits", headers=auth_headers,
+                     json={"name": "ZZ test check", "emoji": "✅", "type": "check"})
+    h = r.json()
+    yield h["id"]
+    session.delete(f"{API}/habits/{h['id']}", headers=auth_headers)
+
+
 def test_editing_someone_elses_habit_is_a_404(session, auth_headers, habit):
     """Scoped by user_id, so a valid id belonging to another account must not
     resolve — the same guard the delete path has."""
