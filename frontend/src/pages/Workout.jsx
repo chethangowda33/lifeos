@@ -24,6 +24,7 @@ import { WORKOUT, SESSION } from "@/constants/testIds";
 import ExercisePicker from "@/components/ExercisePicker";
 import SplitEditor from "@/features/workout/components/SplitEditor";
 import ReadinessCard from "@/features/workout/components/ReadinessCard";
+import { activePlan } from "@/features/workout/lib/activePlan";
 import ProgramDetailDialog from "@/components/ProgramDetailDialog";
 import ExerciseDetailDialog from "@/components/ExerciseDetailDialog";
 import SwipeToDismiss from "@/components/SwipeToDismiss";
@@ -594,7 +595,9 @@ function HeroCard({ plans, routines, workouts, programs = [], recovery = null, o
     (w) => new Date(w.created_at).toDateString() === new Date().toDateString(),
   );
 
-  const plan = plans[0];
+  // The plan you're actually running, not whichever happens to be first —
+  // see features/workout/lib/activePlan.js.
+  const plan = activePlan(plans);
   const days = plan?.days || [];
   const nextIdx = plan ? suggestedDayIndex(days, recovery) : 0;
   const day = days[nextIdx];
