@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **219 tests**, frontend **113 tests**, both green — the backend suite run locally
+Backend **224 tests**, frontend **113 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
@@ -51,7 +51,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
   `chethangowda9@gmail.com` / `cg123456`.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **219 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **224 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -71,7 +71,7 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **DB:** MongoDB Atlas cluster `lifeos-cluster`.
 - **Wiring:** `frontend/vercel.json` rewrites `/api/*` → Render backend (same-origin proxy → no CORS/cookie issues). `api.js` `API_BASE` is absolute locally, `/api` in prod.
 - **Deploy flow:** `git push` to `main` auto-deploys BOTH Vercel + Render. Full beginner guide in `DEPLOYMENT.md`.
-- **Env vars on Render:** MONGO_URL, DB_NAME=lifeos, JWT_SECRET, FRONTEND_URL, COOKIE_SECURE=true, INVITE_CODE, ADMIN_EMAIL, ADMIN_PASSWORD, GROQ_API_KEY.
+- **Env vars on Render:** MONGO_URL, DB_NAME=lifeos, JWT_SECRET, FRONTEND_URL, COOKIE_SECURE=true, INVITE_CODE, ADMIN_EMAIL, ADMIN_PASSWORD, GROQ_API_KEY, PUSH_DISPATCH_SECRET, VAPID_*. **`ADMIN_PASSWORD_RESET`** is the break-glass switch: unset normally, set to `1` + restart to force the admin password back to `ADMIN_PASSWORD`, then unset. It used to be implicit and on every boot, which silently undid password changes.
 - **Prod admins:** `cg3@lifeos.com`/`test1234` (migrated) + `chethangowda98654@gmail.com` (pw = ADMIN_PASSWORD env, hashed/unrecoverable). Both role=admin.
 - **Prod requirements notes:** `backend/requirements.txt` needs `httpx` + `dnspython` (for mongodb+srv); unused build-breakers (jq etc.) removed. Seeding is skipped on boot when unchanged via `_seed_signature()` (was a ~10 min cold start).
 
@@ -155,6 +155,27 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="groq", `GROQ_MODEL`=llama-3.3-70b-versatile). Falls back to Claude if only `ANTHROPIC_API_KEY`. `build_user_context()` feeds the coach the user's real data; `/coach/chat` + `/coach/recap`. **Context now includes** a 7-day health-sync avg (steps/distance/resting HR/HRV/stress/SpO2/active energy) + recent sleep (avg hours + quality); `COACH_SYSTEM` tells it to factor low sleep / high stress before pushing hard training.
 
 ## 7. Open threads / pending
+
+**SESSION 11m (2026-07-31) — you can change your password. `FEATURES.md` §1.**
+- There was **no way to change a password anywhere in the app** — the only password write in the
+  whole codebase was the admin seed on boot. Newly relevant: a second user was just invited and
+  handed a password they couldn't change.
+- `POST /auth/change-password` requires the current password (a borrowed session must not be enough
+  to lock the owner out). UI is an Account card on **Body Metrics**, which already owns the profile.
+- ⚠️ **Fixed the landmine that would have made it pointless for the main account.**
+  `seed_admin_user` reset `ADMIN_EMAIL`'s password to `ADMIN_PASSWORD` on **every boot** whenever
+  they differed — so a change silently reverted on the next Render restart. That reset is now
+  break-glass only, behind **`ADMIN_PASSWORD_RESET=1`**: set it on Render, restart, log in, unset it.
+  **If you are ever locked out of the admin account, that is the route back in.**
+- **Deliberate limitation, stated in the UI rather than implied away:** no session revocation, so
+  changing the password stops NEW logins with the old one but does not sign other devices out.
+- **Still missing: forgotten-password reset.** Needs email delivery, which this app has no
+  infrastructure for. A locked-out **non-admin** has no route back in at all — worth knowing before
+  more people are invited.
+- ⚠️ **`test_change_password.py` is LOCAL ONLY.** It changes the shared admin password and restores
+  it in a `finally`, with a final assertion that the original still works. Pointing it at prod risks
+  leaving that account on the temp password, which would break every other suite.
+- **224 backend tests** green; admin login re-verified after the full run.
 
 **SESSION 11l (2026-07-31) — NEXT UP follows the plan you're actually training. `FEATURES.md` §2a.**
 - The hero read **`plans[0]`**, so every plan after the first was invisible: build a new split,

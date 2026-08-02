@@ -26,7 +26,15 @@
 
 **Improve.**
 - ~~A stale cookie shadows a valid bearer token → 401.~~ **Fixed** in session 2 (§16 ⑦).
-- No password reset, no email verification, no session revocation.
+- ~~No way to change a password.~~ **Added 2026-07-31** — `POST /auth/change-password`, requires the
+  current password, UI on Body Metrics. ⚠️ It also fixed the landmine that would have made it
+  pointless: `seed_admin_user` reset `ADMIN_EMAIL`'s password to `ADMIN_PASSWORD` on **every boot**
+  whenever they differed, so a change reverted on the next restart. That reset is now break-glass
+  only, behind **`ADMIN_PASSWORD_RESET=1`** — set it on Render, restart, log in, unset it.
+- **Still missing: password *reset* (forgotten password).** Needs email delivery, which this app has
+  no infrastructure for. A locked-out non-admin currently has no route back in at all.
+- No email verification. **No session revocation** — changing a password stops new logins with the
+  old one but does not sign other devices out, and the dialog says so rather than implying it does.
 
 ---
 
