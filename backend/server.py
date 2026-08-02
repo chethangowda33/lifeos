@@ -228,6 +228,11 @@ class LoginIn(BaseModel):
     password: str
 
 
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6)  # same floor as registration
+
+
 class UserProfileIn(BaseModel):
     name: Optional[str] = None  # top-level user field (not stored in profile)
     age: Optional[int] = None
@@ -543,6 +548,28 @@ async def root():
 
 
 # ── AUTH ──────────────────────────────────────────────────────────────────────
+@api.post("/auth/change-password")
+async def change_password(payload: PasswordChangeIn, user=Depends(get_current_user)):
+    """Change your own password.
+
+    Requires the current one: a borrowed session should not be enough to lock the
+    real owner out of their account.
+
+    NOTE the deliberate limitation — there is no session revocation in this app, so
+    tokens issued before the change keep working until they expire. Changing the
+    password stops NEW logins with the old one; it does not sign other devices out.
+    """
+    if not verify_password(payload.current_password, user.get("password_hash", "")):
+        raise HTTPException(400, "Current password is incorrect")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(400, "New password must be different from the current one")
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password)}},
+    )
+    return {"ok": True}
+
+
 @api.post("/auth/register")
 async def register(payload: RegisterIn, response: Response):
     # Invite-only mode: when INVITE_CODE is set in the environment, registration requires it.
@@ -3043,12 +3070,19 @@ async def seed_admin_user():
             "created_at": datetime.now(timezone.utc),
         })
         logger.info("Seeded admin user %s", email)
-    elif not verify_password(password, existing["password_hash"]):
-        await db.users.update_one(
-            {"email": email},
-            {"$set": {"password_hash": hash_password(password)}},
-        )
-        logger.info("Updated admin password for %s", email)
+    elif os.environ.get("ADMIN_PASSWORD_RESET", "").lower() in ("1", "true", "yes"):
+        # Break-glass only. This used to run on EVERY boot whenever the stored hash
+        # didn't match ADMIN_PASSWORD, which made the env var permanently
+        # authoritative — so changing the admin password from inside the app
+        # (POST /auth/change-password) silently reverted on the next restart, and
+        # Render restarts often. Now it resets only when explicitly asked: set
+        # ADMIN_PASSWORD_RESET=1, restart, log in, then unset it.
+        if not verify_password(password, existing["password_hash"]):
+            await db.users.update_one(
+                {"email": email},
+                {"$set": {"password_hash": hash_password(password)}},
+            )
+            logger.warning("ADMIN_PASSWORD_RESET set — admin password reset for %s", email)
 
 
 @app.on_event("startup")

@@ -125,6 +125,11 @@ export default function BodyMetrics() {
         ))}
       </div>
 
+      {/* Account — this page already owns the profile, and it was the only
+          place a "your account" section could sensibly live. Until now there
+          was no way to change a password anywhere in the app at all. */}
+      <ChangePassword />
+
       <ProfileDialog
         open={profileOpen}
         onClose={() => setProfileOpen(false)}
@@ -342,6 +347,96 @@ function ProfileDialog({ open, onClose, user, onSaved }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* Change your own password. Requires the current one, so a borrowed session
+   can't lock the owner out. Note there is no session revocation in this app:
+   changing the password stops NEW logins with the old one, it does not sign
+   other devices out — so the copy says exactly that rather than implying it. */
+function ChangePassword() {
+  const [open, setOpen] = useState(false);
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [done, setDone] = useState(false);
+
+  const reset = () => { setCurrent(""); setNext(""); setConfirm(""); setError(""); setDone(false); };
+
+  // Returns whether it worked, so the caller can close the dialog only on
+  // success — leaving it open with cleared fields reads as "nothing happened".
+  const save = async () => {
+    setError("");
+    if (next.length < 6) { setError("New password must be at least 6 characters."); return false; }
+    if (next !== confirm) { setError("The two new passwords don't match."); return false; }
+    setSaving(true);
+    try {
+      await api.post("/auth/change-password", { current_password: current, new_password: next });
+      setCurrent(""); setNext(""); setConfirm("");
+      setDone(true);
+      return true;
+    } catch (e) {
+      setError(e?.response?.data?.detail || "Couldn't change your password — try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <div className="font-semibold tracking-tight">Password</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {done ? "Password changed. Other signed-in devices stay signed in until their session expires."
+                  : "Change the password you sign in with."}
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => { reset(); setOpen(true); }}>Change</Button>
+      </div>
+
+      <Dialog open={open} onOpenChange={(o) => { if (!o) { setOpen(false); reset(); } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Change password</DialogTitle>
+            <DialogDescription>
+              You&apos;ll need your current password. Devices already signed in stay signed in.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">Current password</Label>
+              <Input type="password" value={current} autoComplete="current-password"
+                     onChange={(e) => setCurrent(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">New password</Label>
+              <Input type="password" value={next} autoComplete="new-password"
+                     onChange={(e) => setNext(e.target.value)} />
+            </div>
+            <div>
+              <Label className="text-[11px] uppercase tracking-widest text-muted-foreground">Confirm new password</Label>
+              <Input type="password" value={confirm} autoComplete="new-password"
+                     onChange={(e) => setConfirm(e.target.value)} />
+            </div>
+            {error && <p className="text-xs text-maroon">{error}</p>}
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => { setOpen(false); reset(); }}>Cancel</Button>
+            <Button
+              disabled={saving || !current || !next || !confirm}
+              onClick={async () => { if (await save()) setOpen(false); }}
+              className="bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white"
+            >
+              {saving ? "Saving…" : "Change password"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
   );
 }
 
