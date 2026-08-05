@@ -86,3 +86,9 @@ android-sdk/
 credentials.json
 *.key
 .credentials
+
+# Local-only agent settings — contains machine paths and personal shell history
+.claude/settings.local.json
+
+# Historical E2E run reports — noise, and they name accounts
+test_reports/*.json

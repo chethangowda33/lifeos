@@ -3058,7 +3058,15 @@ async def backfill_intelligence():
 
 async def seed_admin_user():
     email = os.environ.get("ADMIN_EMAIL", "cg3@lifeos.com").lower()
-    password = os.environ.get("ADMIN_PASSWORD", "test1234")
+    password = os.environ.get("ADMIN_PASSWORD")
+    # No default. This used to fall back to a hardcoded password, which meant the
+    # repo shipped a known admin credential — anyone deploying this without setting
+    # ADMIN_PASSWORD got an admin account whose password was on GitHub. Seeding is a
+    # convenience, so skipping it is the safe failure; an unreachable admin account
+    # is recoverable, a publicly-known one is not.
+    if not password:
+        logger.warning("ADMIN_PASSWORD not set — skipping admin seeding for %s", email)
+        return
     existing = await db.users.find_one({"email": email})
     if existing is None:
         await db.users.insert_one({

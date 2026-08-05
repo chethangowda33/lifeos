@@ -20,8 +20,21 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstr
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "cg3@lifeos.com"
-ADMIN_PASSWORD = "test1234"
+# Local dev seed value. Override when pointing the suite anywhere else —
+# the real password must never live in this repo.
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "test1234")
 TEMP_PASSWORD = "zz-temp-pw-9137"
+
+# ⚠️ OPT-IN. This suite briefly changes the password that EVERY other suite logs
+# in with, so including it in a normal run makes the whole run flaky: any module
+# whose auth fixture initialises inside that window gets a 401. Observed exactly
+# that — one full run failed 6 tests, the next passed 224.
+#
+# Run it deliberately:  RUN_PASSWORD_TESTS=1 python -m pytest tests/test_change_password.py
+pytestmark = pytest.mark.skipif(
+    os.environ.get("RUN_PASSWORD_TESTS") != "1",
+    reason="mutates the shared admin password — run explicitly with RUN_PASSWORD_TESTS=1",
+)
 
 
 @pytest.fixture(scope="module")

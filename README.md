@@ -45,14 +45,17 @@ npm install --legacy-peer-deps    # the flag is required, see below
 npm start                          # → http://localhost:3000
 ```
 
-**Test login:** `cg3@lifeos.com` / `test1234` (admin).
+**Local test login:** `cg3@lifeos.com`, password = whatever `ADMIN_PASSWORD` is in your
+`backend/.env`. The account is seeded into your **local** database on first boot.
+Production credentials are never in this repo.
 
 ---
 
 ## Tests
 
 ```bash
-# Backend — 224 tests. Most hit a LIVE server, so start it first.
+# Backend — 219 tests. Most hit a LIVE server, so start it first.
+# (test_change_password is opt-in: RUN_PASSWORD_TESTS=1 — it mutates the shared admin password)
 cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio
 
 # Frontend — 113 tests, all pure functions. Needs nothing running.

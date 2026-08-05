@@ -2,7 +2,7 @@
 
 ## Original Problem Statement
 A "personal OS" for fitness & life tracking, built around 8 pillars.
-Test user: `cg3@lifeos.com / test1234`. Maroon accent (#c0152a). Light theme default.
+Test user: `cg3@lifeos.com` (local seed; password from `backend/.env`). Maroon accent (#c0152a). Light theme default.
 
 ## Architecture
 - **Backend**: FastAPI + Motor (async MongoDB) — `server.py` + `seed_data.py`.

@@ -611,7 +611,7 @@ none.
 
 | Suite | Count | Command | Needs |
 |---|---|---|---|
-| Backend | **224** | `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio` | most need a **live** server on :8001 + Mongo |
+| Backend | **219** + 5 opt-in | `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio` | most need a **live** server on :8001 + Mongo |
 | Frontend | **113** | `cd frontend && CI=true npx craco test --watchAll=false` | nothing |
 
 **Backend tests hit a real running server over HTTP** rather than mocking. Slower, but they test
@@ -624,8 +624,9 @@ connection-refused, the server isn't running; that's not a regression.
 **Frontend tests render nothing.** All 113 test pure functions in `features/*/lib/`. Testing
 React components well is expensive; testing the maths is cheap and catches the bugs that matter.
 
-⚠️ **`test_change_password.py` is local-only** — it changes the shared admin password and restores
-it in a `finally`. Never point it at prod.
+⚠️ **`test_change_password.py` is local-only AND opt-in** (`RUN_PASSWORD_TESTS=1`). It changes the
+shared admin password and restores it in a `finally` — including it in normal runs made them flaky,
+because any suite authenticating inside that window gets a 401. Never point it at prod.
 
 ⚠️ **`uvicorn --reload` takes 30–60s here.** Running tests too soon after a backend edit silently
 exercises the *old* code. That produced both a false pass and a false fail in one session.

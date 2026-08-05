@@ -23,7 +23,9 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "http://localhost:8001").rstr
 API = f"{BASE_URL}/api"
 
 ADMIN_EMAIL = "cg3@lifeos.com"
-ADMIN_PASSWORD = "test1234"
+# Local dev seed value. Override when pointing the suite anywhere else —
+# the real password must never live in this repo.
+ADMIN_PASSWORD = os.environ.get("TEST_ADMIN_PASSWORD", "test1234")
 
 ISOLATED_DAY = "2019-03-14"      # far from any real sync
 ISOLATED_DAY_RAW = "2019-03-15"  # a day of its own — the guard is stateful, so

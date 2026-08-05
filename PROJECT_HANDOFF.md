@@ -6,7 +6,7 @@
 ## 0. Start here
 
 **State (end of session 11):** deployed, live, healthy, and **everything is pushed**.
-Backend **224 tests**, frontend **113 tests**, both green — the backend suite run locally
+Backend **224 tests** (219 run by default, 5 opt-in), frontend **113 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
 **`ARCHITECTURE.md` explains how the system is built** — stack, request flow, data model, deployment, and the frontend conventions (including how a button gets its colour). Read it if you're new or touching an unfamiliar layer; it is the only doc that explains *mechanism* rather than history.
@@ -50,10 +50,11 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **DB:** Mongo in Docker container `lifeos-mongo`. Start: ensure Docker Desktop running, then `docker start lifeos-mongo`. Quirk: sometimes starts without binding host port 27017 right after Docker boots → `docker restart lifeos-mongo` fixes it.
 - **Run backend:** `cd backend && python -m uvicorn server:app --host 0.0.0.0 --port 8001` (kill old :8001 process first).
 - **Run frontend:** CRA dev server on :3000 (`frontend/.env` has `REACT_APP_BACKEND_URL=http://localhost:8001`).
-- **Test login:** `cg3@lifeos.com` / `test1234` (admin). Second real account:
-  `chethangowda9@gmail.com` / `cg123456`.
+- **Test login (LOCAL ONLY):** `cg3@lifeos.com`, password = `ADMIN_PASSWORD` from your
+  `backend/.env`, seeded into the local DB on boot. **Never put a production password in
+  this file** — the repo may go public and git history is public with it.
 - **Backend tests:** `cd backend && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 python -m pytest -q -p xdist -p asyncio`
-  → **224 passing**. Most hit a LIVE backend on :8001, so start it first or they fail on
+  → **219 passing + 5 skipped**. Most hit a LIVE backend on :8001, so start it first or they fail on
   connection-refused (that is not a regression — check the error before believing it).
   **The pure ones don't need a server**: `compute_readiness`, `weekly_push_due`,
   `weekly_push_body`, `merge_daily_metrics` import `server` directly, so
@@ -74,7 +75,8 @@ Personal life-tracking app for me (chethan), going multi-user (me + a friend, in
 - **Wiring:** `frontend/vercel.json` rewrites `/api/*` → Render backend (same-origin proxy → no CORS/cookie issues). `api.js` `API_BASE` is absolute locally, `/api` in prod.
 - **Deploy flow:** `git push` to `main` auto-deploys BOTH Vercel + Render. Full beginner guide in `DEPLOYMENT.md`.
 - **Env vars on Render:** MONGO_URL, DB_NAME=lifeos, JWT_SECRET, FRONTEND_URL, COOKIE_SECURE=true, INVITE_CODE, ADMIN_EMAIL, ADMIN_PASSWORD, GROQ_API_KEY, PUSH_DISPATCH_SECRET, VAPID_*. **`ADMIN_PASSWORD_RESET`** is the break-glass switch: unset normally, set to `1` + restart to force the admin password back to `ADMIN_PASSWORD`, then unset. It used to be implicit and on every boot, which silently undid password changes.
-- **Prod admins:** `cg3@lifeos.com`/`test1234` (migrated) + `chethangowda98654@gmail.com` (pw = ADMIN_PASSWORD env, hashed/unrecoverable). Both role=admin.
+- **Prod admins:** `cg3@lifeos.com` + `chethangowda98654@gmail.com`, both role=admin. Passwords
+  live only in Render's env / the user's head — never here.
 - **Prod requirements notes:** `backend/requirements.txt` needs `httpx` + `dnspython` (for mongodb+srv); unused build-breakers (jq etc.) removed. Seeding is skipped on boot when unchanged via `_seed_signature()` (was a ~10 min cold start).
 
 ## 4. Working rules (follow every step)
@@ -174,7 +176,11 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
 - **Still missing: forgotten-password reset.** Needs email delivery, which this app has no
   infrastructure for. A locked-out **non-admin** has no route back in at all — worth knowing before
   more people are invited.
-- ⚠️ **`test_change_password.py` is LOCAL ONLY.** It changes the shared admin password and restores
+- ⚠️ **`test_change_password.py` is LOCAL ONLY and OPT-IN** — it is skipped unless
+  `RUN_PASSWORD_TESTS=1`. It briefly changes the password every other suite logs in with,
+  which made full runs **flaky**: one run failed 6 tests, the next passed all 224. Run it
+  deliberately: `RUN_PASSWORD_TESTS=1 python -m pytest tests/test_change_password.py`.
+  Original note: It changes the shared admin password and restores
   it in a `finally`, with a final assertion that the original still works. Pointing it at prod risks
   leaving that account on the temp password, which would break every other suite.
 - **224 backend tests** green; admin login re-verified after the full run.
@@ -790,7 +796,7 @@ Prod uses **Groq Llama 3.3 70B** (`GROQ_API_KEY` set → `coach_provider()`="gro
   backend can't start. Fix: open Docker Desktop manually, then `docker start lifeos-mongo`.
   Everything since 2026-07-16 was verified against **prod** instead (works fine, but
   remember to clean up test data — see below).
-- **Verifying against prod**: login `cg3@lifeos.com`/`test1234` works on the Render API.
+- **Verifying against prod**: log in as the admin account against the Render API.
   ALWAYS delete test routines/plans/workouts afterwards, and never leave a real workout
   modified (I edited one during testing and restored it exactly).
 
