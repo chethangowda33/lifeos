@@ -92,3 +92,4 @@ credentials.json
 
 # Historical E2E run reports — noise, and they name accounts
 test_reports/*.json
+.claude/launch.json
