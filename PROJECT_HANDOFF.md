@@ -9,6 +9,8 @@
 Backend **224 tests**, frontend **113 tests**, both green — the backend suite run locally
 against Mongo, so today's shared-code changes are covered, not just the new endpoints.
 
+**`ARCHITECTURE.md` explains how the system is built** — stack, request flow, data model, deployment, and the frontend conventions (including how a button gets its colour). Read it if you're new or touching an unfamiliar layer; it is the only doc that explains *mechanism* rather than history.
+
 **`ROADMAP.md` is the queue.** Read it before picking up work. This file is the chronological log.
 
 **PHASE 0 IS CLEARED — the three long-running user-side blockers are done:**
