@@ -1,0 +1,33 @@
+name: Keep backend awake
+
+# Render's free tier sleeps the service after ~15 min idle, and the next visit
+# pays a 30-60s cold start. This pings the health endpoint every 5 minutes so the
+# server stays warm and the app loads instantly. Remove this file to stop.
+#
+# Note: GitHub's scheduler can run a few minutes late under load, and GitHub
+# auto-disables scheduled workflows after 60 days with no repo commits — push
+# anything (or hit "Run workflow") to re-arm it.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"   # every 5 minutes
+  workflow_dispatch: {}      # lets you trigger it by hand from the Actions tab
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping backend health endpoint
+        run: |
+          echo "Pinging LifeOS backend to keep it warm..."
+          code=$(curl -sS -L -o /dev/null -w "%{http_code}" \
+                 --max-time 90 --retry 2 --retry-delay 10 \
+                 https://lifeos-api-g6hq.onrender.com/api/)
+          echo "HTTP $code"
+          # 2xx/3xx = awake. Don't fail the job on a slow cold start.
+          if [ "$code" -lt 200 ] || [ "$code" -ge 400 ]; then
+            echo "Warning: unexpected status $code (server may have been cold)."
+          fi
