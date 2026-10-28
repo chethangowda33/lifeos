@@ -178,7 +178,7 @@ export default function Dashboard() {
           label="Total volume"
           value={loading ? "—" : `${fmtVol(stats.total_volume)}`}
           unit="kg lifted"
-          hint={loading ? "" : `${stats.total_workouts} workouts · ${fmtDuration(stats.total_duration)}`}
+          hint={loading ? "" : `${stats.total_workouts} workout${stats.total_workouts === 1 ? "" : "s"} · ${fmtDuration(stats.total_duration)}`}
         />
         <StatCard
           testId={DASHBOARD.statWeight}

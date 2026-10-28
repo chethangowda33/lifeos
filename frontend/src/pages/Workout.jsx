@@ -431,7 +431,7 @@ export default function Workout() {
           <DialogHeader>
             <DialogTitle className="text-2xl">{activeRoutine?.name}</DialogTitle>
             <DialogDescription>
-              {activeRoutine?.exercises?.length ?? 0} exercises queued
+              {activeRoutine?.exercises?.length ?? 0} exercise{(activeRoutine?.exercises?.length ?? 0) === 1 ? "" : "s"} queued
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 max-h-[60vh] overflow-y-auto">
@@ -745,7 +745,7 @@ function HeroCard({ plans, routines, workouts, programs = [], recovery = null, o
 
       <h2 className="text-xl font-bold tracking-tight mt-2.5">{day ? day.name : routine.name}</h2>
       <p className="text-xs text-muted-foreground mt-0.5">
-        {plan ? `${plan.name} · ` : ""}{exs.length} exercises · ~{estMinutes} min
+        {plan ? `${plan.name} · ` : ""}{exs.length} exercise{exs.length === 1 ? "" : "s"} · ~{estMinutes} min
         {estLearned && <span className="text-muted-foreground/70"> (your average)</span>}
       </p>
       {readiness.length > 0 && (
@@ -840,7 +840,7 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown, onIm
           <Folder className="h-4 w-4 text-maroon shrink-0" />
           <span className="font-medium text-sm truncate">{plan.name}</span>
           <span className="text-xs text-muted-foreground shrink-0">
-            {days.length} days · next: {days[nextIdx]?.name}
+            {days.length} day{days.length === 1 ? "" : "s"} · next: {days[nextIdx]?.name}
           </span>
           {hasRoutines && (
             <Badge variant="outline" className="text-[9px] shrink-0" title="Days are saved as routines you can edit">
@@ -891,7 +891,7 @@ function PlanFolder({ plan, onStartDay, onReorder, onDelete, onSetCooldown, onIm
                     {isNext && <Badge className="bg-maroon text-white text-[9px] px-1.5 py-0 hover:bg-maroon">Next</Badge>}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    {day.exercises?.length || 0} exercises · {n === Infinity ? "not trained yet" : `trained ${recencyLabel(day.last_completed_at)}`}
+                    {day.exercises?.length || 0} exercise{(day.exercises?.length || 0) === 1 ? "" : "s"} · {n === Infinity ? "not trained yet" : `trained ${recencyLabel(day.last_completed_at)}`}
                   </div>
                 </div>
                 <div className="flex flex-col shrink-0">
@@ -983,7 +983,7 @@ function RoutineRow({ routine, onStart, onView, onDelete, onMoveUp, onMoveDown, 
       <button onClick={onView} className="flex-1 min-w-0 text-left">
         <div className="text-sm font-medium truncate">{routine.name}</div>
         <div className="text-[11px] text-muted-foreground truncate">
-          {routine.exercises?.length ?? 0} exercises{preview ? ` · ${preview}` : ""}
+          {routine.exercises?.length ?? 0} exercise{(routine.exercises?.length ?? 0) === 1 ? "" : "s"}{preview ? ` · ${preview}` : ""}
         </div>
       </button>
       <DropdownMenu>

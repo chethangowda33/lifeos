@@ -275,7 +275,7 @@ export default function Progress() {
                       {m.recovery === "fresh" && <span className="text-[9px] px-1.5 rounded-full bg-green-500/15 text-green-400">recovered</span>}
                     </span>
                     <span className="text-muted-foreground">
-                      {m.hard_sets} sets · <span style={{ color: st.color }}>{st.label}</span>
+                      {m.hard_sets} set{m.hard_sets === 1 ? "" : "s"} · <span style={{ color: st.color }}>{st.label}</span>
                     </span>
                   </div>
                   <div className="h-2 rounded-full bg-muted relative overflow-visible">

@@ -973,7 +973,8 @@ export default function WorkoutSession() {
             <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm">
               <div className="font-medium truncate">{resumeSnapshot.name}</div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {snapshotCompletedSets(resumeSnapshot.exercises)} sets logged · {resumeSnapshot.exercises?.length || 0} exercises
+                {(() => { const s = snapshotCompletedSets(resumeSnapshot.exercises); const e = resumeSnapshot.exercises?.length || 0;
+                  return `${s} set${s === 1 ? "" : "s"} logged · ${e} exercise${e === 1 ? "" : "s"}`; })()}
               </div>
             </div>
           )}

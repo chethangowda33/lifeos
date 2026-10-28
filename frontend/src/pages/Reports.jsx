@@ -372,7 +372,7 @@ function MuscleSplit({ training }) {
           {rows.map((m) => (
             <BarRow
               key={m.muscle_group} label={<span className="capitalize">{m.muscle_group}</span>}
-              value={`${m.hard_sets} sets`} pct={barPct(m.hard_sets, max)}
+              value={`${m.hard_sets} set${m.hard_sets === 1 ? "" : "s"}`} pct={barPct(m.hard_sets, max)}
             />
           ))}
         </div>
