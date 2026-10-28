@@ -55,6 +55,8 @@ export default function ReadinessCard() {
     );
   }
 
+  const trainedToday = readiness.inputs?.trained_today;
+
   return (
     <Card data-testid={WORKOUT.readiness} className="p-5">
       <div className="flex items-center justify-between mb-2">
@@ -66,19 +68,27 @@ export default function ReadinessCard() {
         </span>
       </div>
 
-      <p className={`text-xl font-semibold tracking-tight ${tone(readiness.score)}`}>
-        {readiness.headline}
+      <p className={`text-xl font-semibold tracking-tight ${trainedToday ? "text-emerald-400" : tone(readiness.score)}`}>
+        {trainedToday ? "Trained today ✓ — rest and recover" : readiness.headline}
       </p>
 
-      {readiness.train?.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mt-3">
-          {readiness.train.map((m) => (
-            <span key={m} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1 text-[11px] capitalize">
-              {m}
-            </span>
+      {/* Already trained → further work is OPTIONAL, so present it as a soft aside
+          rather than the big "go train" chips (which read like an instruction). */}
+      {trainedToday
+        ? (readiness.verdict !== "rest" && readiness.train?.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Want more? Keep it light — <span className="capitalize">{readiness.train.slice(0, 2).join(" or ")}</span>.
+            </p>
+          ))
+        : (readiness.train?.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mt-3">
+              {readiness.train.map((m) => (
+                <span key={m} className="rounded-lg border border-border bg-muted/30 px-2.5 py-1 text-[11px] capitalize">
+                  {m}
+                </span>
+              ))}
+            </div>
           ))}
-        </div>
-      )}
       {readiness.avoid?.length > 0 && (
         <p className="text-[11px] text-muted-foreground mt-2">
           Go easy on: <span className="capitalize">{readiness.avoid.join(" · ")}</span>
