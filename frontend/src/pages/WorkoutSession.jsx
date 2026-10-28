@@ -32,6 +32,7 @@ import { StatPill, MiniStat } from "@/features/workout/session/StatPill";
 import { fmtClock, fmtDuration, fmtRelative } from "@/features/workout/lib/format";
 import { buildWorkoutPayload, describeApiError } from "@/features/workout/lib/payload";
 import { sessionStats } from "@/features/workout/lib/stats";
+import { setActiveSession, clearActiveSession, readActiveSession } from "@/features/workout/lib/activeSession";
 import confetti from "canvas-confetti";
 import { SESSION } from "@/constants/testIds";
 
@@ -185,6 +186,8 @@ export default function WorkoutSession() {
   const [exercises, setExercises] = useState([]);
   const [startedAt, setStartedAt] = useState(() => Date.now());
   const [now, setNow] = useState(Date.now());
+  const [pausedAccumMs, setPausedAccumMs] = useState(0); // total time spent paused
+  const [pausedAt, setPausedAt] = useState(null);        // when the current pause began (null = running)
   const [savingOpen, setSavingOpen] = useState(false);
   const [description, setDescription] = useState("");
   const [saveAsRoutine, setSaveAsRoutine] = useState(false);
@@ -307,9 +310,24 @@ export default function WorkoutSession() {
       setExercises(freshExercises);
       const saved = readSnapshot(storageKey);
       if (saved && sessionHasProgress(saved.exercises)) {
-        setResumeSnapshot(saved); // opens the resume dialog; persistence stays paused
+        // Returning from a minimized session (its pointer still matches) → resume
+        // seamlessly, no dialog. Any other saved session still asks resume/fresh.
+        const active = readActiveSession();
+        if (active && active.storageKey === storageKey) {
+          if (saved.name) setName(saved.name);
+          setDescription(saved.description || "");
+          setExercises(saved.exercises || []);
+          if (saved.startedAt) setStartedAt(saved.startedAt);
+          setPausedAccumMs(saved.pausedAccumMs || 0);
+          setPausedAt(saved.pausedAt || null);
+          setHydrated(true);
+        } else {
+          setResumeSnapshot(saved); // opens the resume dialog; persistence stays paused
+        }
       } else {
         if (saved) localStorage.removeItem(storageKey);
+        const active = readActiveSession();
+        if (active && active.storageKey === storageKey) clearActiveSession();
         setHydrated(true);
       }
     })();
@@ -322,19 +340,25 @@ export default function WorkoutSession() {
     try {
       localStorage.setItem(
         storageKey,
-        JSON.stringify({ v: 1, name, description, startedAt, exercises, savedAt: Date.now() }),
+        JSON.stringify({ v: 1, name, description, startedAt, pausedAccumMs, pausedAt, exercises, savedAt: Date.now() }),
       );
     } catch { /* ignore quota errors */ }
-  }, [hydrated, storageKey, name, description, startedAt, exercises]);
+  }, [hydrated, storageKey, name, description, startedAt, pausedAccumMs, pausedAt, exercises]);
+
+  // Restore a saved session's state (shared by the resume dialog and the
+  // seamless resume when returning from a minimized workout).
+  const applySnapshot = (s) => {
+    if (!s) return;
+    if (s.name) setName(s.name);
+    setDescription(s.description || "");
+    setExercises(s.exercises || []);
+    if (s.startedAt) setStartedAt(s.startedAt);
+    setPausedAccumMs(s.pausedAccumMs || 0);
+    setPausedAt(s.pausedAt || null);
+  };
 
   const resumeSession = () => {
-    const s = resumeSnapshot;
-    if (s) {
-      if (s.name) setName(s.name);
-      setDescription(s.description || "");
-      setExercises(s.exercises || []);
-      if (s.startedAt) setStartedAt(s.startedAt);
-    }
+    applySnapshot(resumeSnapshot);
     setResumeSnapshot(null);
     setHydrated(true);
   };
@@ -366,8 +390,27 @@ export default function WorkoutSession() {
     return () => clearInterval(tickRef.current);
   }, []);
 
-  const durationSecs = Math.floor((now - startedAt) / 1000);
+  // Active workout time — paused stretches don't count. While paused, the clock
+  // freezes at the moment the pause began.
+  const durationSecs = Math.max(0, Math.floor(((pausedAt || now) - startedAt - pausedAccumMs) / 1000));
   const stats = useMemo(() => sessionStats(exercises), [exercises]);
+
+  const togglePause = () => {
+    if (pausedAt) {
+      setPausedAccumMs((ms) => ms + (Date.now() - pausedAt)); // bank the paused stretch
+      setPausedAt(null);
+    } else {
+      setPausedAt(Date.now());
+    }
+  };
+
+  // Minimize: keep the workout running in the background and drop a floating
+  // "resume" bar (rendered app-wide). The session itself is already persisted to
+  // localStorage on every change, so nothing is lost.
+  const minimize = () => {
+    setActiveSession({ storageKey, path: location.pathname, name });
+    navigate("/workout");
+  };
 
   const setEx = (i, fn) =>
     setExercises((arr) => arr.map((e, idx) => (idx === i ? fn(e) : e)));
@@ -693,6 +736,7 @@ export default function WorkoutSession() {
     // Shared completion — clears the draft and shows the post-workout summary.
     const finishLocal = (saved) => {
       try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+      clearActiveSession();
       setSavingOpen(false);
       setRoutineDiff(computeRoutineDiff());
       setSummary({
@@ -763,6 +807,7 @@ export default function WorkoutSession() {
   const discard = () => {
     if (!window.confirm("Discard this workout? All entered sets will be lost.")) return;
     try { localStorage.removeItem(storageKey); } catch { /* ignore */ }
+    clearActiveSession();
     navigate("/workout");
   };
 
@@ -771,10 +816,29 @@ export default function WorkoutSession() {
       {/* Sticky header */}
       <div className="sticky top-0 z-30 bg-background/95 backdrop-blur border-b border-border">
         <div className="flex items-center justify-between px-4 sm:px-6 py-3">
-          <button onClick={() => navigate("/workout")} className="p-2 -ml-2 rounded-md hover:bg-muted">
+          <button
+            data-testid={SESSION.minimizeButton}
+            onClick={minimize}
+            aria-label="Minimize workout"
+            title="Minimize — keeps your workout running"
+            className="p-2 -ml-2 rounded-md hover:bg-muted"
+          >
             <ChevronDown className="h-5 w-5" />
           </button>
           <div className="font-semibold tracking-tight truncate flex-1 px-3">{name}</div>
+          <button
+            data-testid={SESSION.pauseButton}
+            onClick={togglePause}
+            aria-label={pausedAt ? "Resume workout" : "Pause workout"}
+            title={pausedAt ? "Resume workout" : "Pause workout"}
+            className={`p-2 rounded-md transition ${
+              pausedAt
+                ? "text-maroon hover:bg-muted"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted"
+            }`}
+          >
+            {pausedAt ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}
+          </button>
           <button
             onClick={() => setIntervalOpen(true)}
             aria-label="Interval timer"
@@ -796,6 +860,15 @@ export default function WorkoutSession() {
           <StatPill testId={SESSION.volume} label="Volume" value={`${stats.volume.toFixed(0)} kg`} />
           <StatPill testId={SESSION.setsCount} label="Sets" value={stats.sets} />
         </div>
+        {pausedAt && (
+          <button
+            data-testid={SESSION.pausedBanner}
+            onClick={togglePause}
+            className="w-full flex items-center justify-center gap-1.5 px-4 sm:px-6 pb-2.5 -mt-1 text-xs font-medium text-maroon"
+          >
+            <Pause className="h-3.5 w-3.5" /> Paused — tap to resume
+          </button>
+        )}
         {exercises.length > 0 && (
           <QuickLog exercises={exercises} defaultIdx={activeIdx} onLog={logQuickSet} />
         )}

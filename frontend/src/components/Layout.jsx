@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import ColorWheel from "@/components/ColorWheel";
+import MiniWorkoutBar from "@/components/MiniWorkoutBar";
 import { NAV } from "@/constants/testIds";
 import useTrainReminder from "@/hooks/useTrainReminder";
 import useOfflineQueue from "@/hooks/useOfflineQueue";
@@ -256,6 +257,9 @@ export default function Layout() {
           <Outlet />
         </div>
       </main>
+
+      {/* Floating "resume workout" bar — shows app-wide when a workout is minimized */}
+      <MiniWorkoutBar />
     </div>
   );
 }
