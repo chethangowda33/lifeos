@@ -772,12 +772,24 @@ function HeroCard({ plans, routines, workouts, programs = [], recovery = null, o
         {exs.length > 5 && <span className="text-xs text-muted-foreground ml-1">+{exs.length - 5}</span>}
       </div>
 
-      <Button
-        onClick={start}
-        className="w-full mt-4 bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white h-11 text-[15px]"
-      >
-        <Play className="h-4 w-4 mr-2" /> Start workout
-      </Button>
+      {/* Already trained today → the primary "Start workout" CTA contradicts the
+          "Trained today ✓" badge, so demote it to an optional outline action. */}
+      {trainedToday ? (
+        <Button
+          onClick={start}
+          variant="outline"
+          className="w-full mt-4 h-11 text-[15px] text-muted-foreground hover:text-foreground"
+        >
+          <Play className="h-4 w-4 mr-2" /> Train again anyway
+        </Button>
+      ) : (
+        <Button
+          onClick={start}
+          className="w-full mt-4 bg-maroon hover:bg-[hsl(var(--maroon-hover))] text-white h-11 text-[15px]"
+        >
+          <Play className="h-4 w-4 mr-2" /> Start workout
+        </Button>
+      )}
 
       {day && days.length > 1 && (
         <div className="mt-2.5 text-center">
