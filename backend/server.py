@@ -20,7 +20,10 @@ import uuid
 import math
 import hashlib
 import secrets
+import asyncio
+import smtplib
 import logging
+from email.message import EmailMessage
 from collections import Counter
 from datetime import date, datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -44,6 +47,25 @@ ACCESS_TOKEN_TTL_MIN = 60 * 24  # 1 day
 REFRESH_TOKEN_TTL_DAYS = 7
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"  # set true in production (https)
 
+# ── Password reset ─────────────────────────────────────────────────────────────
+PASSWORD_RESET_TTL_MIN = int(os.environ.get("PASSWORD_RESET_TTL_MIN", "60"))  # link lifetime
+# Where the reset link points — the FRONTEND, not the API. Same env var the CORS
+# allow-list already uses, so there is nothing new to configure in the common case.
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
+# ── Outbound email (SMTP) ──────────────────────────────────────────────────────
+# Works with any SMTP provider: Gmail app-password, Resend, SendGrid, Mailgun, …
+# Leave SMTP_HOST blank to run in "not configured" mode — the reset flow still
+# works end-to-end, but instead of sending, the link is written to the server log.
+APP_NAME = os.environ.get("APP_NAME", "LifeOS")
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+SMTP_FROM = os.environ.get("SMTP_FROM") or SMTP_USER
+SMTP_USE_SSL = os.environ.get("SMTP_SSL", "false").lower() == "true"       # port 465
+SMTP_USE_STARTTLS = os.environ.get("SMTP_STARTTLS", "true").lower() == "true"  # port 587
+
 mongo_url = os.environ["MONGO_URL"]
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ["DB_NAME"]]
@@ -57,7 +79,7 @@ logger = logging.getLogger("lifeos")
 # ── AI Coach config ──────────────────────────────────────────────────────────
 COACH_MODEL = os.environ.get("COACH_MODEL", "claude-opus-4-7")
 COACH_EFFORT = os.environ.get("COACH_EFFORT", "medium")  # low | medium | high | xhigh | max
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 _anthropic_client = None
 
 
@@ -113,6 +135,85 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
+
+
+def _hash_reset_token(token: str) -> str:
+    """Store only a hash of the reset token, never the token itself.
+
+    The raw token goes to the user's inbox; if the database leaks, the stored
+    hash can't be turned back into a working link. Same reasoning as password
+    hashing — SHA-256 is enough here because the token is already 256 bits of
+    randomness (unlike a human-chosen password, it needs no slow KDF)."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def email_configured() -> bool:
+    return bool(SMTP_HOST and SMTP_FROM)
+
+
+def _send_email_sync(to: str, subject: str, text_body: str, html_body: str) -> None:
+    """Blocking SMTP send. Call via asyncio.to_thread so it can't stall the loop."""
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = SMTP_FROM
+    msg["To"] = to
+    msg.set_content(text_body)
+    msg.add_alternative(html_body, subtype="html")
+
+    if SMTP_USE_SSL:
+        server = smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, timeout=20)
+    else:
+        server = smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20)
+    try:
+        if SMTP_USE_STARTTLS and not SMTP_USE_SSL:
+            server.starttls()
+        if SMTP_USER:
+            server.login(SMTP_USER, SMTP_PASSWORD)
+        server.send_message(msg)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            pass
+
+
+async def send_password_reset_email(to: str, name: str, reset_link: str) -> None:
+    """Email a reset link — or, when SMTP isn't configured, log it instead so the
+    flow still works locally. Never raises: a delivery failure must not change the
+    API response (that would leak whether an account exists)."""
+    greeting = f"Hi {name}," if name else "Hi,"
+    subject = f"Reset your {APP_NAME} password"
+    text_body = (
+        f"{greeting}\n\n"
+        f"We received a request to reset your {APP_NAME} password. Open the link "
+        f"below to choose a new one — it expires in {PASSWORD_RESET_TTL_MIN} minutes.\n\n"
+        f"{reset_link}\n\n"
+        "If you didn't request this, you can safely ignore this email; your "
+        "password won't change.\n"
+    )
+    html_body = f"""\
+<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:480px;margin:0 auto;color:#1a1a1a;">
+  <h2 style="color:#c0152a;margin:0 0 16px;">Reset your {APP_NAME} password</h2>
+  <p style="margin:0 0 12px;">{greeting}</p>
+  <p style="margin:0 0 20px;line-height:1.5;">We received a request to reset your password. Click the button below to choose a new one. This link expires in {PASSWORD_RESET_TTL_MIN} minutes.</p>
+  <p style="margin:0 0 24px;">
+    <a href="{reset_link}" style="display:inline-block;background:#c0152a;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-weight:600;">Reset password</a>
+  </p>
+  <p style="margin:0 0 8px;font-size:13px;color:#666;">Or paste this link into your browser:</p>
+  <p style="margin:0 0 24px;font-size:13px;word-break:break-all;"><a href="{reset_link}" style="color:#c0152a;">{reset_link}</a></p>
+  <p style="margin:0;font-size:13px;color:#666;line-height:1.5;">If you didn't request this, you can safely ignore this email — your password won't change.</p>
+</div>"""
+
+    if not email_configured():
+        # Not-yet-configured / dev fallback. NEVER a substitute for real delivery
+        # in production — anyone reading the logs could hijack the account.
+        logger.warning("SMTP not configured — password reset link for %s: %s", to, reset_link)
+        return
+    try:
+        await asyncio.to_thread(_send_email_sync, to, subject, text_body, html_body)
+        logger.info("Password reset email sent to %s", to)
+    except Exception as e:
+        logger.error("Failed to send password reset email to %s: %s", to, e)
 
 
 def _jwt_secret() -> str:
@@ -230,6 +331,15 @@ class LoginIn(BaseModel):
 
 class PasswordChangeIn(BaseModel):
     current_password: str
+    new_password: str = Field(min_length=6)  # same floor as registration
+
+
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
     new_password: str = Field(min_length=6)  # same floor as registration
 
 
@@ -567,6 +677,64 @@ async def change_password(payload: PasswordChangeIn, user=Depends(get_current_us
         {"_id": user["_id"]},
         {"$set": {"password_hash": hash_password(payload.new_password)}},
     )
+    return {"ok": True}
+
+
+@api.post("/auth/forgot-password")
+async def forgot_password(payload: ForgotPasswordIn):
+    """Start a password reset: email the account a one-time, time-limited link.
+
+    Always returns the same 200 whether or not the email is registered. Telling a
+    stranger "no account with that email" hands them a free way to enumerate who
+    has signed up — so we never reveal it.
+    """
+    email = payload.email.lower()
+    user = await db.users.find_one({"email": email})
+    if user:
+        uid = str(user["_id"])
+        # One live link per account — a fresh request retires any earlier ones.
+        await db.password_resets.delete_many({"user_id": uid})
+        raw_token = secrets.token_urlsafe(32)
+        await db.password_resets.insert_one({
+            "user_id": uid,
+            "token_hash": _hash_reset_token(raw_token),
+            "expires_at": datetime.now(timezone.utc) + timedelta(minutes=PASSWORD_RESET_TTL_MIN),
+            "created_at": datetime.now(timezone.utc),
+        })
+        reset_link = f"{FRONTEND_BASE_URL}/reset-password?token={raw_token}"
+        await send_password_reset_email(email, user.get("name", ""), reset_link)
+    return {"ok": True, "message": "If an account exists for that email, a reset link is on its way."}
+
+
+@api.post("/auth/reset-password")
+async def reset_password(payload: ResetPasswordIn):
+    """Finish a password reset: swap the emailed token for a new password."""
+    record = await db.password_resets.find_one({"token_hash": _hash_reset_token(payload.token)})
+    if not record:
+        raise HTTPException(400, "This reset link is invalid or has already been used.")
+
+    # Motor hands datetimes back tz-naive (UTC); make the comparison tz-aware.
+    expires_at = record["expires_at"]
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        await db.password_resets.delete_one({"_id": record["_id"]})
+        raise HTTPException(400, "This reset link has expired. Please request a new one.")
+
+    try:
+        user = await db.users.find_one({"_id": ObjectId(record["user_id"])})
+    except Exception:
+        user = None
+    if not user:
+        await db.password_resets.delete_many({"user_id": record["user_id"]})
+        raise HTTPException(400, "This reset link is invalid or has already been used.")
+
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"password_hash": hash_password(payload.new_password)}},
+    )
+    # One-time use: burn this token (and any siblings) so the link can't be replayed.
+    await db.password_resets.delete_many({"user_id": record["user_id"]})
     return {"ok": True}
 
 
@@ -3480,6 +3648,626 @@ async def coach_chat(payload: CoachChatIn, user=Depends(get_current_user)):
         raise HTTPException(502, f"AI request failed: {e}")
 
     return {"configured": True, "provider": provider, "reply": reply, "sources": sources}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AI ASSISTANT — an agent that DOES things (tool use), not just advice.
+#
+# The coach above answers questions. This assistant takes actions: it creates and
+# edits routines, adds exercises, logs workouts/habits/sleep/measurements — by
+# calling tools. Each tool is a thin wrapper over the SAME endpoint functions the
+# UI uses, so every write goes through the exact same validation, PR/progression,
+# and plan-advancement logic. Works with whichever LLM is configured: Groq
+# (OpenAI-style function calling) or Anthropic (tool_use blocks).
+# ══════════════════════════════════════════════════════════════════════════════
+GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+
+class ToolError(Exception):
+    """A tool couldn't do what was asked (bad id, not found, …). Fed back to the
+    model as an error result so it can recover or explain — never a 500."""
+
+
+async def _best_exercise_match(user, name: str) -> Optional[Dict[str, str]]:
+    """Resolve a free-text exercise name to a real library/custom exercise.
+
+    Doing this server-side (deterministically) instead of trusting the LLM to map
+    a name to an id is both more accurate — a weak model happily reuses the wrong
+    id — and cheaper, since the model no longer needs a search round-trip per
+    exercise. Returns {'id','name'} or None."""
+    q = (name or "").strip()
+    if not q:
+        return None
+    uid = str(user["_id"])
+    scope = {"$or": [{"user_id": {"$exists": False}}, {"user_id": uid}]}
+    # 1) exact (case-insensitive) name wins outright.
+    exact = await db.exercises.find_one(
+        {**scope, "name": {"$regex": f"^{re.escape(q)}$", "$options": "i"}}, {"_id": 1, "name": 1})
+    if exact:
+        return {"id": str(exact["_id"]), "name": exact["name"]}
+
+    words = [w for w in re.split(r"\s+", q.lower()) if len(w) > 1] or [q.lower()]
+    # 2) candidates that contain EVERY query word (order-independent).
+    rows = await db.exercises.find(
+        {**scope, "$and": [{"name": {"$regex": re.escape(w), "$options": "i"}} for w in words]},
+        {"_id": 1, "name": 1}).to_list(150)
+    # 3) if none, loosen to ANY query word.
+    if not rows:
+        rows = await db.exercises.find(
+            {**scope, "name": {"$regex": "|".join(re.escape(w) for w in words), "$options": "i"}},
+            {"_id": 1, "name": 1}).to_list(150)
+    if not rows:
+        return None
+
+    def _tok(s: str) -> List[str]:
+        return [t for t in re.split(r"\s+", re.sub(r"[()\-/]", " ", s.lower())) if t]
+
+    def score(nm: str):
+        nwords = _tok(nm)
+        # A query word matches a name word if either contains the other (len>=3
+        # guards against noise) — this also absorbs simple plurals (pull/pulls).
+        def hit(w):
+            return any((w in nw or nw in w) and min(len(w), len(nw)) >= 3 for nw in nwords)
+        matched = sum(1 for w in words if hit(w))
+        extra = sum(1 for nw in nwords if not any((w in nw or nw in w) for w in words))
+        # Best = most query words matched, then fewest extra words, then a plain
+        # (non-parenthetical) shorter name. "Barbell Full Squat" beats
+        # "Barbell Squat Jump Step Rear Lunge" for the query "barbell squat".
+        return (-matched, extra, ("(" in nm), len(nm), nm)
+
+    rows.sort(key=lambda d: score(d["name"]))
+    return {"id": str(rows[0]["_id"]), "name": rows[0]["name"]}
+
+
+async def _resolve_exercise_ref(user, e: Dict[str, Any]) -> Dict[str, str]:
+    """Turn a model-supplied exercise dict into a validated {'id','name'}.
+
+    Accepts either a real exercise_id (from search_exercises) or a plain name,
+    which is resolved here. A fabricated id ('barbell bench press id') falls
+    through to name resolution instead of persisting broken data."""
+    eid = str(e.get("exercise_id") or "").strip()
+    if eid:
+        try:
+            found = await db.exercises.find_one(
+                {"_id": ObjectId(eid),
+                 "$or": [{"user_id": {"$exists": False}}, {"user_id": str(user["_id"])}]},
+                {"_id": 1, "name": 1})
+            if found:
+                return {"id": eid, "name": found["name"]}
+        except Exception:
+            pass  # not a real ObjectId — try the name instead
+    name = str(e.get("name") or e.get("exercise_name") or "").strip()
+    match = await _best_exercise_match(user, name) if name else None
+    if not match:
+        label = name or eid or "(unnamed)"
+        raise ToolError(
+            f"Couldn't find an exercise matching {label!r}. Use search_exercises to find the right one, "
+            "then pass its exact name or id.")
+    return match
+
+
+async def _coerce_routine_exercises(user, raw: List[Dict[str, Any]]) -> List["RoutineExerciseIn"]:
+    out = []
+    for e in raw or []:
+        ref = await _resolve_exercise_ref(user, e)
+        out.append(RoutineExerciseIn(
+            exercise_id=ref["id"],
+            sets=int(e.get("sets") or 3),
+            reps=int(e.get("reps") or 10),
+            notes=str(e.get("notes") or ""),
+        ))
+    return out
+
+
+async def _find_routine(user, routine_id: str) -> Dict[str, Any]:
+    match = next((r for r in await list_routines(user) if r["id"] == routine_id), None)
+    if not match:
+        raise ToolError(f"No routine with id {routine_id}. Call list_routines to get valid ids.")
+    return match
+
+
+def _existing_ex(match: Dict[str, Any]) -> List["RoutineExerciseIn"]:
+    return [
+        RoutineExerciseIn(
+            exercise_id=e["exercise_id"],
+            sets=int(e.get("sets") or 3),
+            reps=int(e.get("reps") or 10),
+            notes=str(e.get("notes") or ""),
+        )
+        for e in match.get("exercises", []) if e.get("exercise_id")
+    ]
+
+
+# ── Tool executors: (user, args) -> JSON-serializable dict ──────────────────────
+async def _tool_search_exercises(user, args):
+    q = (args.get("query") or "").strip()
+    rows = await list_exercises(muscle_group=args.get("muscle_group"), search=q or None, user=user)
+    limit = min(int(args.get("limit") or 12), 25)
+    out = [
+        {"id": r["id"], "name": r["name"], "muscle_group": r.get("muscle_group"), "equipment": r.get("equipment")}
+        for r in rows[:limit]
+    ]
+    return {"count": len(out), "exercises": out}
+
+
+async def _tool_list_routines(user, args):
+    rows = await list_routines(user)
+    return {"count": len(rows), "routines": [
+        {"id": r["id"], "name": r["name"], "folder": r.get("folder", ""),
+         "exercises": [{"exercise_id": e.get("exercise_id"), "name": e.get("name"),
+                        "sets": e.get("sets"), "reps": e.get("reps")} for e in r.get("exercises", [])]}
+        for r in rows
+    ]}
+
+
+async def _tool_create_routine(user, args):
+    name = (args.get("name") or "New Routine").strip()
+    exercises = await _coerce_routine_exercises(user, args.get("exercises") or [])
+    doc = await create_routine(RoutineIn(name=name, folder=args.get("folder") or "", exercises=exercises), user)
+    n = len(doc.get("exercises", []))
+    return {"id": doc["id"], "name": doc["name"], "exercise_count": n,
+            "_summary": f'Created routine "{doc["name"]}" with {n} exercise{"s" if n != 1 else ""}.'}
+
+
+async def _tool_update_routine(user, args):
+    match = await _find_routine(user, args["routine_id"])
+    name = args["name"].strip() if args.get("name") else match["name"]
+    folder = args.get("folder") if args.get("folder") is not None else match.get("folder", "")
+    if args.get("exercises") is not None:
+        exercises = await _coerce_routine_exercises(user, args["exercises"])
+    else:
+        exercises = _existing_ex(match)
+    await update_routine(match["id"], RoutineIn(name=name, folder=folder or "", exercises=exercises), user)
+    return {"ok": True, "id": match["id"], "name": name, "exercise_count": len(exercises),
+            "_summary": f'Updated routine "{name}" ({len(exercises)} exercises).'}
+
+
+async def _tool_add_exercises_to_routine(user, args):
+    match = await _find_routine(user, args["routine_id"])
+    existing = _existing_ex(match)
+    added = await _coerce_routine_exercises(user, args.get("exercises") or [])
+    if not added:
+        raise ToolError("No exercises given to add.")
+    await update_routine(match["id"], RoutineIn(name=match["name"], folder=match.get("folder", ""),
+                                                exercises=existing + added), user)
+    return {"ok": True, "id": match["id"], "added": len(added), "total": len(existing) + len(added),
+            "_summary": f'Added {len(added)} exercise{"s" if len(added) != 1 else ""} to "{match["name"]}".'}
+
+
+async def _tool_log_workout(user, args):
+    exs = []
+    for e in (args.get("exercises") or []):
+        ref = await _resolve_exercise_ref(user, e)
+        sets = [
+            WorkoutSetIn(
+                set_type=s.get("set_type") or "working",
+                kg=s.get("kg"), reps=s.get("reps"),
+                completed=bool(s.get("completed", True)),
+            ) for s in (e.get("sets") or [])
+        ]
+        exs.append(WorkoutExerciseIn(exercise_id=ref["id"], notes=str(e.get("notes") or ""), sets=sets))
+    if not exs:
+        raise ToolError("A workout needs at least one exercise with sets.")
+    doc = await create_workout(WorkoutSessionIn(
+        name=(args.get("name") or "Workout").strip(),
+        routine_id=args.get("routine_id"),
+        duration_seconds=int(args.get("duration_seconds") or 0),
+        exercises=exs,
+    ), user)
+    prs = len(doc.get("pr_events") or [])
+    vol = doc.get("total_volume_kg") or 0
+    summ = f'Logged "{doc["name"]}" — {doc.get("completed_sets", 0)} sets, {vol} kg total volume'
+    summ += f", {prs} new PR{'s' if prs != 1 else ''}." if prs else "."
+    return {"id": doc["id"], "name": doc["name"], "total_volume_kg": vol,
+            "completed_sets": doc.get("completed_sets", 0), "prs": prs, "_summary": summ}
+
+
+async def _tool_get_recent_workouts(user, args):
+    rows = await list_workouts(user)
+    limit = min(int(args.get("limit") or 5), 15)
+    return {"count": min(len(rows), limit), "workouts": [
+        {"id": d["id"], "name": d.get("name"), "date": (d.get("created_at") or "")[:10],
+         "volume_kg": d.get("total_volume_kg"), "sets": d.get("completed_sets"),
+         "exercises": [e.get("name") for e in d.get("exercises", []) if e.get("name")]}
+        for d in rows[:limit]
+    ]}
+
+
+async def _tool_list_habits(user, args):
+    rows = await list_habits(user)
+    return {"count": len(rows), "habits": [
+        {"id": h["id"], "name": h["name"], "type": h["type"], "target": h.get("target"),
+         "unit": h.get("unit"), "today_done": h["today_done"], "streak": h["streak"]}
+        for h in rows
+    ]}
+
+
+async def _tool_log_habit(user, args):
+    hid = args["habit_id"]
+    val = args.get("value")
+    payload = HabitLogIn(value=float(val)) if val is not None else HabitLogIn()
+    await log_habit(hid, payload, user)
+    return {"ok": True, "habit_id": hid, "_summary": "Logged a habit for today."}
+
+
+async def _tool_create_habit(user, args):
+    doc = await create_habit(HabitIn(
+        name=args["name"], emoji=args.get("emoji") or "✅",
+        type=args.get("type") or "check", target=args.get("target"), unit=args.get("unit") or "",
+    ), user)
+    return {"id": doc["id"], "name": doc["name"], "_summary": f'Created habit "{doc["name"]}".'}
+
+
+async def _tool_log_sleep(user, args):
+    doc = await log_sleep(SleepLogIn(
+        hours=float(args["hours"]), quality=args.get("quality"), date=args.get("date"),
+    ), user)
+    return {"ok": True, "date": doc["date"], "hours": doc["hours"],
+            "_summary": f"Logged {doc['hours']}h of sleep for {doc['date']}."}
+
+
+async def _tool_log_body_metric(user, args):
+    doc = await log_metric(BodyMetricIn(metric=args["metric"], value=float(args["value"])), user)
+    return {"ok": True, "metric": doc["metric"], "value": doc["value"],
+            "_summary": f"Logged {doc['metric'].replace('_', ' ')} = {doc['value']}."}
+
+
+TOOL_EXECUTORS = {
+    "search_exercises": _tool_search_exercises,
+    "list_routines": _tool_list_routines,
+    "create_routine": _tool_create_routine,
+    "update_routine": _tool_update_routine,
+    "add_exercises_to_routine": _tool_add_exercises_to_routine,
+    "log_workout": _tool_log_workout,
+    "get_recent_workouts": _tool_get_recent_workouts,
+    "list_habits": _tool_list_habits,
+    "log_habit": _tool_log_habit,
+    "create_habit": _tool_create_habit,
+    "log_sleep": _tool_log_sleep,
+    "log_body_metric": _tool_log_body_metric,
+}
+
+# Tools that CHANGE data — surfaced to the user as "actions taken". Reads aren't.
+WRITE_TOOLS = {
+    "create_routine", "update_routine", "add_exercises_to_routine",
+    "log_workout", "log_habit", "create_habit", "log_sleep", "log_body_metric",
+}
+
+# Reusable JSON-schema fragments.
+_EX_ITEM = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "the exercise name, e.g. 'Barbell Bench Press' or 'Lateral Raise' — the app matches it to the library"},
+        "exercise_id": {"type": "string", "description": "optional: an id from search_exercises (use instead of name only if you already have one)"},
+        "sets": {"type": "integer", "description": "number of sets (default 3)"},
+        "reps": {"type": "integer", "description": "target reps per set (default 10)"},
+        "notes": {"type": "string"},
+    },
+    "required": ["name"],
+}
+_LOG_EX_ITEM = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string", "description": "the exercise name, e.g. 'Barbell Bench Press' — the app matches it to the library"},
+        "exercise_id": {"type": "string", "description": "optional id from search_exercises"},
+        "sets": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kg": {"type": "number", "description": "weight in kilograms"},
+                    "reps": {"type": "integer"},
+                    "set_type": {"type": "string", "enum": ["working", "warmup", "dropset", "failure", "amrap"]},
+                    "completed": {"type": "boolean", "description": "default true"},
+                },
+            },
+        },
+    },
+    "required": ["name", "sets"],
+}
+
+# OpenAI/Groq-format tool specs (converted to Anthropic form at call time).
+TOOL_SPECS = [
+    {"type": "function", "function": {
+        "name": "search_exercises",
+        "description": "Browse the exercise library by a keyword in the name (substring match). Use this only to explore options or when a name is ambiguous — for create_routine/log_workout you can just pass the exercise name and the app resolves it. Search with a short keyword like 'bench', 'squat', 'curl'.",
+        "parameters": {"type": "object", "properties": {
+            "query": {"type": "string", "description": "short keyword, e.g. 'bench'"},
+            "muscle_group": {"type": "string", "description": "optional filter, e.g. 'chest'"},
+            "limit": {"type": "integer"},
+        }, "required": ["query"]},
+    }},
+    {"type": "function", "function": {
+        "name": "list_routines",
+        "description": "List the user's saved workout routines with their ids and exercises. Call this to find a routine's id before editing it.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "create_routine",
+        "description": "Create a new workout routine (template) with a name and a list of exercises.",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "folder": {"type": "string", "description": "optional grouping folder"},
+            "exercises": {"type": "array", "items": _EX_ITEM},
+        }, "required": ["name", "exercises"]},
+    }},
+    {"type": "function", "function": {
+        "name": "update_routine",
+        "description": "Edit an existing routine. Provide routine_id and any of: name, folder, exercises. If 'exercises' is given it REPLACES the whole exercise list — use add_exercises_to_routine to only append.",
+        "parameters": {"type": "object", "properties": {
+            "routine_id": {"type": "string"},
+            "name": {"type": "string"},
+            "folder": {"type": "string"},
+            "exercises": {"type": "array", "items": _EX_ITEM},
+        }, "required": ["routine_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "add_exercises_to_routine",
+        "description": "Append one or more exercises to an existing routine without removing what's already there.",
+        "parameters": {"type": "object", "properties": {
+            "routine_id": {"type": "string"},
+            "exercises": {"type": "array", "items": _EX_ITEM},
+        }, "required": ["routine_id", "exercises"]},
+    }},
+    {"type": "function", "function": {
+        "name": "log_workout",
+        "description": "Record a COMPLETED workout session with the exercises and sets that were performed (weights in kg, reps).",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string", "description": "e.g. 'Push Day'"},
+            "routine_id": {"type": "string", "description": "optional, if this came from a routine"},
+            "duration_seconds": {"type": "integer"},
+            "exercises": {"type": "array", "items": _LOG_EX_ITEM},
+        }, "required": ["exercises"]},
+    }},
+    {"type": "function", "function": {
+        "name": "get_recent_workouts",
+        "description": "Get the user's most recent logged workouts (name, date, volume, exercises). Useful for 'log the same as last time'.",
+        "parameters": {"type": "object", "properties": {"limit": {"type": "integer"}}},
+    }},
+    {"type": "function", "function": {
+        "name": "list_habits",
+        "description": "List the user's habits with ids, today's completion, and streaks.",
+        "parameters": {"type": "object", "properties": {}},
+    }},
+    {"type": "function", "function": {
+        "name": "log_habit",
+        "description": "Mark a check habit done for today, or set a count habit's value. Get the habit_id from list_habits.",
+        "parameters": {"type": "object", "properties": {
+            "habit_id": {"type": "string"},
+            "value": {"type": "number", "description": "for count habits only"},
+        }, "required": ["habit_id"]},
+    }},
+    {"type": "function", "function": {
+        "name": "create_habit",
+        "description": "Create a new habit. type is 'check' (yes/no) or 'count' (numeric with a target + unit).",
+        "parameters": {"type": "object", "properties": {
+            "name": {"type": "string"},
+            "emoji": {"type": "string"},
+            "type": {"type": "string", "enum": ["check", "count"]},
+            "target": {"type": "number"},
+            "unit": {"type": "string"},
+        }, "required": ["name"]},
+    }},
+    {"type": "function", "function": {
+        "name": "log_sleep",
+        "description": "Log a night's sleep in hours (0-24), optional quality 1-5, optional date YYYY-MM-DD (defaults today).",
+        "parameters": {"type": "object", "properties": {
+            "hours": {"type": "number"},
+            "quality": {"type": "integer"},
+            "date": {"type": "string"},
+        }, "required": ["hours"]},
+    }},
+    {"type": "function", "function": {
+        "name": "log_body_metric",
+        "description": "Log a body measurement. metric is one of: weight, body_fat, muscle_mass, bone_mass, hydration, metabolic_age. weight is in kg.",
+        "parameters": {"type": "object", "properties": {
+            "metric": {"type": "string", "enum": ["weight", "body_fat", "muscle_mass", "bone_mass", "hydration", "metabolic_age"]},
+            "value": {"type": "number"},
+        }, "required": ["metric", "value"]},
+    }},
+]
+
+ANTHROPIC_TOOLS = [
+    {"name": t["function"]["name"], "description": t["function"]["description"],
+     "input_schema": t["function"]["parameters"]}
+    for t in TOOL_SPECS
+]
+
+ASSISTANT_SYSTEM = (
+    "You are the LifeOS Assistant — an agent that DOES things in the user's fitness app on their behalf, "
+    "not just gives advice. You can create and edit workout routines, add exercises, log completed workouts "
+    "and sets, tick habits, and log sleep and body measurements — by calling the provided tools.\n\n"
+    "How to work:\n"
+    "- When the user asks you to do something, USE THE TOOLS to actually do it. Don't just describe the steps.\n"
+    "- For exercises, pass the exercise NAME in the `name` field (e.g. 'Barbell Bench Press', 'Lateral Raise', "
+    "'Romanian Deadlift'). The app matches each name to its exercise library for you — you do NOT need to call "
+    "search_exercises first, and you should NOT invent ids. Give each exercise its own correct name.\n"
+    "- Only use search_exercises when you need to browse what's available or the user's wording is vague and you "
+    "want to offer options. If the app reports it couldn't match a name, tell the user and suggest alternatives.\n"
+    "- To edit a routine, call list_routines first to get its id.\n"
+    "- If the user doesn't specify sets/reps, choose sensible defaults (e.g. 3 sets of 8-12).\n"
+    "- Weights are in KILOGRAMS. When logging, mark sets completed=true unless told otherwise.\n"
+    "- In log_workout, the `sets` array holds ONE entry per set actually performed. '5 sets of 100 kg x 5' "
+    "means FIVE entries, each {kg:100, reps:5} — never collapse them into one.\n"
+    "- Make reasonable choices and state them; only ask a clarifying question when you genuinely cannot "
+    "proceed (e.g. two routines share the same name).\n"
+    "- After acting, confirm briefly and concretely what you did (name the routine/exercises, the numbers). "
+    "Keep replies short; bold key numbers.\n"
+    "- You have no delete tool for whole routines/workouts/habits. If asked to delete one, tell the user to "
+    "remove it in the app — but you CAN edit a routine's exercise list with update_routine."
+)
+
+
+async def _execute_tool(name: str, user, args: Dict[str, Any], actions: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Run one tool call, recording write-tool outcomes for the user. Errors are
+    returned to the model (not raised) so it can recover or explain."""
+    fn = TOOL_EXECUTORS.get(name)
+    if not fn:
+        return {"error": f"Unknown tool '{name}'"}
+    if not isinstance(args, dict):
+        args = {}
+    try:
+        result = await fn(user, args)
+        if name in WRITE_TOOLS:
+            actions.append({"tool": name, "ok": True,
+                            "summary": result.get("_summary") or f"{name} done."})
+        return result
+    except (ToolError, HTTPException) as e:
+        detail = e.detail if isinstance(e, HTTPException) else str(e)
+        if name in WRITE_TOOLS:
+            actions.append({"tool": name, "ok": False, "summary": str(detail)})
+        return {"error": str(detail)}
+    except Exception as e:
+        logger.exception("assistant tool %s failed", name)
+        if name in WRITE_TOOLS:
+            actions.append({"tool": name, "ok": False, "summary": f"{type(e).__name__}: {e}"})
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+async def _groq_post(http, headers, body):
+    """POST to Groq, retrying on 429 (free tier is 12k tokens/min). Honors the
+    'try again in Xs' hint so a burst of agent steps rides out the limit instead
+    of failing the whole request."""
+    r = None
+    for attempt in range(3):
+        r = await http.post(GROQ_CHAT_URL, headers=headers, json=body)
+        if r.status_code != 429:
+            return r
+        wait = 2.0 * (attempt + 1)
+        m = re.search(r"try again in ([0-9.]+)s", r.text)
+        if m:
+            try:
+                wait = min(float(m.group(1)) + 0.5, 12.0)
+            except ValueError:
+                pass
+        if attempt < 2:
+            await asyncio.sleep(wait)
+    return r
+
+
+async def _run_groq_agent(system, history, user, actions, max_steps):
+    import httpx
+    key = os.environ["GROQ_API_KEY"]
+    messages = [{"role": "system", "content": system}, *history]
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+    async with httpx.AsyncClient(timeout=90) as http:
+        for _ in range(max_steps):
+            body = {"model": GROQ_MODEL, "messages": messages, "tools": TOOL_SPECS,
+                    "tool_choice": "auto", "temperature": 0.3, "max_tokens": 700}
+            r = await _groq_post(http, headers, body)
+            if r.status_code == 429:
+                raise HTTPException(429, "The AI is over its per-minute rate limit. Wait a few seconds and try again.")
+            if r.status_code >= 400:
+                raise HTTPException(502, f"Groq error {r.status_code}: {r.text[:300]}")
+            msg = r.json()["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls") or []
+            if not tool_calls:
+                return (msg.get("content") or "").strip()
+            messages.append({"role": "assistant", "content": msg.get("content") or "", "tool_calls": tool_calls})
+            for tc in tool_calls:
+                fname = tc.get("function", {}).get("name", "")
+                raw = tc.get("function", {}).get("arguments") or "{}"
+                try:
+                    targs = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except Exception:
+                    targs = {}
+                result = await _execute_tool(fname, user, targs, actions)
+                messages.append({"role": "tool", "tool_call_id": tc.get("id"),
+                                 "name": fname, "content": json.dumps(result)[:4000]})
+        # Out of steps — one last pass with no tools to summarize what happened.
+        body = {"model": GROQ_MODEL, "temperature": 0.3, "max_tokens": 400,
+                "messages": [*messages, {"role": "user",
+                            "content": "Briefly tell me what you did (or couldn't), based on the tool results above."}]}
+        r = await _groq_post(http, headers, body)
+        if r.status_code >= 400:
+            return "I completed some steps but ran long. Please check your data and tell me what to finish."
+        return (r.json()["choices"][0]["message"].get("content") or "").strip()
+
+
+async def _run_anthropic_agent(system, history, user, actions, max_steps):
+    client = get_anthropic()
+    messages = [dict(m) for m in history]
+    for _ in range(max_steps):
+        resp = await client.messages.create(
+            model=COACH_MODEL, max_tokens=1500, system=system,
+            tools=ANTHROPIC_TOOLS, messages=messages,
+        )
+        if resp.stop_reason != "tool_use":
+            return "".join(b.text for b in resp.content if b.type == "text").strip()
+        messages.append({"role": "assistant", "content": resp.content})
+        results = []
+        for block in resp.content:
+            if block.type == "tool_use":
+                result = await _execute_tool(block.name, user, block.input, actions)
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": json.dumps(result)[:4000]})
+        messages.append({"role": "user", "content": results})
+    return "I did as much as I could — please check your data and tell me what to finish."
+
+
+async def run_assistant(user, history, max_steps: int = 8):
+    provider = coach_provider()
+    if not provider:
+        return None, []
+    # Deliberately NO big data snapshot here: the tools (list_routines,
+    # get_recent_workouts, list_habits) fetch what's needed on demand. On Groq's
+    # free 12k-tokens/min tier the system prompt is resent every agent step, so a
+    # fat context is what tips a multi-step task over the limit.
+    today = datetime.now(timezone.utc).date().isoformat()
+    name = user.get("name") or "there"
+    system = f"{ASSISTANT_SYSTEM}\n\n# Context\nUser: {name}. Today's date: {today}."
+    actions: List[Dict[str, Any]] = []
+    history = history[-20:]  # cap context
+    if provider == "groq":
+        reply = await _run_groq_agent(system, history, user, actions, max_steps)
+    else:
+        reply = await _run_anthropic_agent(system, history, user, actions, max_steps)
+    return reply, actions
+
+
+class AssistantChatIn(BaseModel):
+    messages: List[CoachMessageIn] = []
+
+
+@api.get("/assistant/status")
+async def assistant_status(user=Depends(get_current_user)):
+    provider = coach_provider()
+    return {
+        "configured": bool(provider),
+        "provider": provider or None,
+        "model": GROQ_MODEL if provider == "groq" else COACH_MODEL,
+        "tools": [t["function"]["name"] for t in TOOL_SPECS],
+    }
+
+
+@api.post("/assistant/chat")
+async def assistant_chat(payload: AssistantChatIn, user=Depends(get_current_user)):
+    msgs = [m for m in payload.messages if m.content and m.content.strip()]
+    if not msgs:
+        raise HTTPException(400, "No message provided")
+    provider = coach_provider()
+    if not provider:
+        return {
+            "configured": False,
+            "reply": (
+                "The assistant isn't connected to an LLM yet. Add **GROQ_API_KEY** (free, get it at "
+                "console.groq.com) or **ANTHROPIC_API_KEY** to `backend/.env` and restart the backend."
+            ),
+            "actions": [],
+        }
+    history = [{"role": ("assistant" if m.role == "assistant" else "user"), "content": m.content} for m in msgs]
+    while history and history[0]["role"] != "user":
+        history.pop(0)
+    if not history:
+        raise HTTPException(400, "No user message provided")
+    try:
+        reply, actions = await run_assistant(user, history)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("assistant chat failed")
+        raise HTTPException(502, f"Assistant request failed: {e}")
+    return {"configured": True, "provider": provider, "reply": reply or "Done.", "actions": actions}
 
 
 RECAP_SYSTEM = (

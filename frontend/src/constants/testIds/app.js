@@ -13,6 +13,7 @@ export const NAV = {
   itemNutrition: 'nav-item-nutrition',
   itemHabits: 'nav-item-habits',
   itemCoach: 'nav-item-coach',
+  itemAssistant: 'nav-item-assistant',
   itemSleep: 'nav-item-sleep',
   itemProgress: 'nav-item-progress',
   itemReports: 'nav-item-reports',
@@ -124,6 +125,17 @@ export const COACH = {
   newChatButton: 'coach-new-chat-button',
   copyButton: 'coach-copy-button',
   retryButton: 'coach-retry-button',
+};
+
+export const ASSISTANT = {
+  root: 'assistant-root',
+  input: 'assistant-input',
+  sendButton: 'assistant-send-button',
+  message: 'assistant-message',
+  quickPrompt: 'assistant-quick-prompt',
+  newChatButton: 'assistant-new-chat-button',
+  action: 'assistant-action',
+  retryButton: 'assistant-retry-button',
 };
 
 export const BODY_METRICS = {

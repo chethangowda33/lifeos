@@ -28,6 +28,19 @@ export const REGISTER = {
 	loginLink: 'register-login-link',
 };
 
+export const FORGOT_PASSWORD = {
+	emailInput: 'forgot-password-email-input',
+	submitButton: 'forgot-password-submit-button',
+	loginLink: 'forgot-password-login-link',
+};
+
+export const RESET_PASSWORD = {
+	passwordInput: 'reset-password-password-input',
+	passwordConfirmInput: 'reset-password-confirm-input',
+	submitButton: 'reset-password-submit-button',
+	loginLink: 'reset-password-login-link',
+};
+
 export const LOGOUT = {
 	button: 'logout-button',
 };

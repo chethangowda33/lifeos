@@ -11,6 +11,8 @@ import Layout from "@/components/Layout";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import Dashboard from "@/pages/Dashboard";
 import Workout from "@/pages/Workout";
 import WorkoutSession from "@/pages/WorkoutSession";
@@ -22,6 +24,7 @@ import Reports from "@/pages/Reports";
 import Achievements from "@/pages/Achievements";
 import Challenges from "@/pages/Challenges";
 import Coach from "@/pages/Coach";
+import Assistant from "@/pages/Assistant";
 import Admin from "@/pages/Admin";
 import Habits from "@/pages/Habits";
 import Sleep from "@/pages/Sleep";
@@ -37,6 +40,8 @@ function App() {
           <Routes>
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
 
             <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
@@ -57,6 +62,7 @@ function App() {
               <Route path="/nutrition" element={<Navigate to="/intake" replace />} />
               <Route path="/habits" element={<Habits />} />
               <Route path="/coach" element={<Coach />} />
+              <Route path="/assistant" element={<Assistant />} />
               <Route path="/sleep" element={<Sleep />} />
               <Route path="/connections" element={<Connections />} />
               <Route path="/progress-old" element={<Placeholder title="Progress" description="Long-term trends across pillars." icon={Sparkles} />} />

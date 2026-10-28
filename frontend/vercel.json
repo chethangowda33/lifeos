@@ -3,6 +3,10 @@
     {
       "source": "/api/:path*",
       "destination": "https://lifeos-api-g6hq.onrender.com/api/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Dumbbell, Activity, Apple, ListChecks,
-  Sparkles, Moon, TrendingUp, FileText, Medal, Flag, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch, Menu, CloudOff,
+  Sparkles, Wand2, Moon, TrendingUp, FileText, Medal, Flag, LogOut, Sun, MoonStar, Palette, Check, Shield, Watch, Menu, CloudOff,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
@@ -23,6 +23,7 @@ const NAV_ITEMS = [
   { to: "/intake", label: "Intake", icon: Apple, testId: NAV.itemNutrition },
   { to: "/habits", label: "Habits", icon: ListChecks, testId: NAV.itemHabits },
   { to: "/coach", label: "AI Coach", icon: Sparkles, testId: NAV.itemCoach },
+  { to: "/assistant", label: "AI Assistant", icon: Wand2, testId: NAV.itemAssistant },
   { to: "/sleep", label: "Sleep", icon: Moon, testId: NAV.itemSleep },
   { to: "/progress", label: "Progress", icon: TrendingUp, testId: NAV.itemProgress },
   { to: "/reports", label: "Reports", icon: FileText, testId: NAV.itemReports },
