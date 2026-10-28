@@ -52,6 +52,11 @@ function accentHex() {
 // (sit-ups, crunches, leg raises); only cardio defaults to duration.
 const TIME_BASED = new Set(["cardio"]);
 
+// Active workout seconds, excluding paused time. While paused the clock freezes.
+function liveElapsedSecs(startedAt, pausedAccumMs, pausedAt) {
+  return Math.max(0, Math.floor(((pausedAt || Date.now()) - startedAt - (pausedAccumMs || 0)) / 1000));
+}
+
 /* 1 -> "1st", 2 -> "2nd", 3 -> "3rd", 11 -> "11th" … for the milestone line. */
 function ordinal(n) {
   const v = Number(n) || 0;
@@ -185,7 +190,6 @@ export default function WorkoutSession() {
   const [name, setName] = useState("Workout");
   const [exercises, setExercises] = useState([]);
   const [startedAt, setStartedAt] = useState(() => Date.now());
-  const [now, setNow] = useState(Date.now());
   const [pausedAccumMs, setPausedAccumMs] = useState(0); // total time spent paused
   const [pausedAt, setPausedAt] = useState(null);        // when the current pause began (null = running)
   const [savingOpen, setSavingOpen] = useState(false);
@@ -369,30 +373,35 @@ export default function WorkoutSession() {
     setHydrated(true);
   };
 
-  // Heartbeat for duration + rest timers
+  // Heartbeat for rest timers only. The workout clock lives in its own <SessionTimer>
+  // so this no longer re-renders the whole exercise list every second — that
+  // constant re-render was freezing momentum scrolling on mobile. We also return
+  // the SAME state object when nothing ticked, so an idle session (no running rest
+  // timer) triggers no re-render at all.
   useEffect(() => {
     tickRef.current = setInterval(() => {
-      setNow(Date.now());
       setRestState((rs) => {
+        let changed = false;
         const out = { ...rs };
         for (const k of Object.keys(out)) {
           if (out[k].running && out[k].remaining > 0) {
             out[k] = { ...out[k], remaining: out[k].remaining - 1 };
+            changed = true;
             if (out[k].remaining === 0) {
               out[k].running = false;
               restAlert(); // beep + vibrate when rest ends
             }
           }
         }
-        return out;
+        return changed ? out : rs;
       });
     }, 1000);
     return () => clearInterval(tickRef.current);
   }, []);
 
-  // Active workout time — paused stretches don't count. While paused, the clock
-  // freezes at the moment the pause began.
-  const durationSecs = Math.max(0, Math.floor(((pausedAt || now) - startedAt - pausedAccumMs) / 1000));
+  // Active workout time — paused stretches don't count. Computed at render for the
+  // save dialog / summary snapshots; the live-ticking header uses <SessionTimer>.
+  const durationSecs = liveElapsedSecs(startedAt, pausedAccumMs, pausedAt);
   const stats = useMemo(() => sessionStats(exercises), [exercises]);
 
   const togglePause = () => {
@@ -705,8 +714,11 @@ export default function WorkoutSession() {
   // Save flow
   const submitSave = async () => {
     setSaving(true);
+    // Fresh at save time — the render-time durationSecs can be a few seconds stale
+    // now that the parent no longer re-renders every second.
+    const savedDurationSecs = liveElapsedSecs(startedAt, pausedAccumMs, pausedAt);
     const workoutPayload = buildWorkoutPayload({
-      name, description, durationSecs, routineId, planId, dayIndex, exercises,
+      name, description, durationSecs: savedDurationSecs, routineId, planId, dayIndex, exercises,
     });
     const routinePayload = {
       name,
@@ -743,7 +755,7 @@ export default function WorkoutSession() {
         name,
         sets: stats.sets,
         volume: stats.volume,
-        duration: durationSecs,
+        duration: savedDurationSecs,
         prs: saved?.pr_events || [], // no server PRs when saved offline
         muscles: [...new Set(exercises.map((ex) => ex.muscle_group).filter(Boolean))],
       });
@@ -856,7 +868,7 @@ export default function WorkoutSession() {
         </div>
         {/* Stats bar */}
         <div className="grid grid-cols-3 gap-3 px-4 sm:px-6 pb-3 text-sm">
-          <StatPill testId={SESSION.duration} label="Duration" value={fmtDuration(durationSecs)} accent />
+          <SessionTimer startedAt={startedAt} pausedAccumMs={pausedAccumMs} pausedAt={pausedAt} />
           <StatPill testId={SESSION.volume} label="Volume" value={`${stats.volume.toFixed(0)} kg`} />
           <StatPill testId={SESSION.setsCount} label="Sets" value={stats.sets} />
         </div>
@@ -1214,3 +1226,17 @@ export default function WorkoutSession() {
 }
 
 // ─── Sub components ────────────────────────────────────────────────────────
+
+/* The live workout clock, isolated so its once-a-second tick re-renders only this
+   small pill — not the whole exercise list (which was freezing mobile scrolling).
+   Stops ticking while paused. */
+function SessionTimer({ startedAt, pausedAccumMs, pausedAt }) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (pausedAt) return undefined; // frozen while paused — no need to tick
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [pausedAt]);
+  const secs = liveElapsedSecs(startedAt, pausedAccumMs, pausedAt);
+  return <StatPill testId={SESSION.duration} label="Duration" value={fmtDuration(secs)} accent />;
+}
