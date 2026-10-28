@@ -107,8 +107,11 @@ export default function BodyMetrics() {
         <LoadError what="your body metrics" onRetry={() => { setLoading(true); refresh(); }} />
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {Object.entries(defs).map(([key, def]) => (
+      {(() => {
+        const entries = Object.entries(defs);
+        const comp = entries.filter(([, d]) => !d.measurement);
+        const meas = entries.filter(([, d]) => d.measurement);
+        const renderCard = ([key, def]) => (
           <MetricCard
             key={key}
             metricKey={key}
@@ -117,13 +120,31 @@ export default function BodyMetrics() {
             history={history[key] || []}
             onAdd={() => openLog(key)}
             onClearLog={async () => {
-              if (!window.confirm(`Remove your logged ${def.label} values? It will revert to the predicted estimate.`)) return;
+              const tail = def.measurement ? "" : " It will revert to the predicted estimate.";
+              if (!window.confirm(`Remove your logged ${def.label} values?${tail}`)) return;
               await api.delete(`/body-metrics/${key}`);
               await refresh();
             }}
           />
-        ))}
-      </div>
+        );
+        return (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {comp.map(renderCard)}
+            </div>
+            {meas.length > 0 && (
+              <div className="space-y-3">
+                <h2 className="text-xs uppercase tracking-widest text-maroon font-semibold mt-2">
+                  Body Measurements
+                </h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {meas.map(renderCard)}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Account — this page already owns the profile, and it was the only
           place a "your account" section could sensibly live. Until now there
@@ -144,7 +165,9 @@ export default function BodyMetrics() {
               Log {logMetric && defs[logMetric]?.label}
             </DialogTitle>
             <DialogDescription>
-              {logMetric && `Ideal range: ${defs[logMetric]?.ideal_min}–${defs[logMetric]?.ideal_max} ${defs[logMetric]?.unit}`}
+              {logMetric && (defs[logMetric]?.measurement
+                ? `Measure with a soft tape, level to the floor. Enter it in ${defs[logMetric]?.unit}.`
+                : `Ideal range: ${defs[logMetric]?.ideal_min}–${defs[logMetric]?.ideal_max} ${defs[logMetric]?.unit}`)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
@@ -174,8 +197,9 @@ function MetricCard({ metricKey, def, latest, history, onAdd, onClearLog }) {
   const v = latest?.value;
   const isEstimated = latest?.source === "estimated";
   const isAuto = def.auto;
-  const inRange = v != null && v >= def.ideal_min && v <= def.ideal_max;
-  const status = v == null || v === 0
+  const isMeasure = !!def.measurement; // circumference — no ideal range, just a trend
+  const inRange = !isMeasure && v != null && v >= def.ideal_min && v <= def.ideal_max;
+  const status = isMeasure || v == null || v === 0
     ? null
     : inRange ? "in-range" : (v < def.ideal_min ? "low" : "high");
 
@@ -226,9 +250,11 @@ function MetricCard({ metricKey, def, latest, history, onAdd, onClearLog }) {
       </div>
 
       <div className="flex items-center gap-2 mt-3 flex-wrap">
-        <Badge variant="outline" className="text-[10px]">
-          Ideal {def.ideal_min}–{def.ideal_max} {def.unit}
-        </Badge>
+        {!isMeasure && (
+          <Badge variant="outline" className="text-[10px]">
+            Ideal {def.ideal_min}–{def.ideal_max} {def.unit}
+          </Badge>
+        )}
         {status && (
           <Badge className={`text-[10px] ${
             status === "in-range"
@@ -252,7 +278,9 @@ function MetricCard({ metricKey, def, latest, history, onAdd, onClearLog }) {
         {chartData.length >= 2 ? (
           <ResponsiveContainer width="100%" height="100%" minWidth={120} minHeight={60}>
             <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-              <ReferenceArea y1={def.ideal_min} y2={def.ideal_max} fill="hsl(var(--maroon))" fillOpacity={0.06} />
+              {!isMeasure && (
+                <ReferenceArea y1={def.ideal_min} y2={def.ideal_max} fill="hsl(var(--maroon))" fillOpacity={0.06} />
+              )}
               <XAxis dataKey="i" hide />
               <YAxis hide domain={["auto", "auto"]} />
               <Tooltip
@@ -288,13 +316,14 @@ function ProfileDialog({ open, onClose, user, onSaved }) {
   const [age, setAge] = useState(p.age || "");
   const [height, setHeight] = useState(p.height_cm || "");
   const [weight, setWeight] = useState(p.weight_kg || "");
+  const [goal, setGoal] = useState(p.goal_weight_kg || "");
   const [sex, setSex] = useState(p.sex || "male");
 
   useEffect(() => {
     if (open) {
       const pp = user?.profile || {};
       setAge(pp.age || ""); setHeight(pp.height_cm || "");
-      setWeight(pp.weight_kg || ""); setSex(pp.sex || "male");
+      setWeight(pp.weight_kg || ""); setGoal(pp.goal_weight_kg || ""); setSex(pp.sex || "male");
     }
   }, [open, user]);
 
@@ -330,6 +359,10 @@ function ProfileDialog({ open, onClose, user, onSaved }) {
             <Label htmlFor="weight">Weight (kg)</Label>
             <Input id="weight" type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} />
           </div>
+          <div>
+            <Label htmlFor="goal">Goal weight (kg)</Label>
+            <Input id="goal" type="number" step="0.1" value={goal} onChange={(e) => setGoal(e.target.value)} />
+          </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
@@ -339,6 +372,7 @@ function ProfileDialog({ open, onClose, user, onSaved }) {
               age: age ? Number(age) : null,
               height_cm: height ? Number(height) : null,
               weight_kg: weight ? Number(weight) : null,
+              goal_weight_kg: goal ? Number(goal) : null,
               sex,
             })}
           >
@@ -461,11 +495,21 @@ function ProfileBanner({ user, onEdit }) {
   return (
     <Card className="p-4 flex items-center gap-4 flex-wrap">
       <div className="text-xs uppercase tracking-widest text-muted-foreground">Profile</div>
-      <div className="flex gap-4 text-sm">
+      <div className="flex gap-4 text-sm flex-wrap items-center">
         <span><b>{p.age}</b> <span className="text-muted-foreground">yrs</span></span>
         <span><b>{p.height_cm}</b> <span className="text-muted-foreground">cm</span></span>
         <span><b>{p.weight_kg}</b> <span className="text-muted-foreground">kg</span></span>
         <span className="capitalize"><b>{p.sex}</b></span>
+        {p.goal_weight_kg ? (
+          <span className="text-maroon font-medium">
+            <span className="text-muted-foreground font-normal">goal</span> {p.goal_weight_kg} kg
+            {p.weight_kg ? (
+              <span className="text-muted-foreground font-normal">
+                {" · "}{Math.abs(p.weight_kg - p.goal_weight_kg).toFixed(1)} kg to go
+              </span>
+            ) : null}
+          </span>
+        ) : null}
       </div>
       <Button size="sm" variant="ghost" onClick={onEdit} className="ml-auto">
         <Pencil className="h-3.5 w-3.5 mr-1" /> Edit

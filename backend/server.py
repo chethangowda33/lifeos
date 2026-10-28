@@ -348,6 +348,7 @@ class UserProfileIn(BaseModel):
     age: Optional[int] = None
     height_cm: Optional[float] = None
     weight_kg: Optional[float] = None
+    goal_weight_kg: Optional[float] = None  # target weight — drives the goal progress bar
     sex: Optional[str] = None  # "male" | "female"
 
 
@@ -642,6 +643,16 @@ METRIC_DEFS: Dict[str, Dict[str, Any]] = {
     "metabolic_age": {"label": "Metabolic Age", "unit": "years", "ideal_min": 18, "ideal_max": 40, "auto": False, "max": 120},
     "bmi": {"label": "BMI", "unit": "kg/m²", "ideal_min": 18.5, "ideal_max": 24.9, "auto": True, "max": 100},
     "bmr": {"label": "BMR", "unit": "kcal/day", "ideal_min": 1500, "ideal_max": 2200, "auto": True, "max": 10000},
+    # Body measurements (circumferences). There is no universal "ideal" for these —
+    # they're pure tracked trends — so `measurement: True` tells the UI to skip the
+    # ideal-range badge/shading. `max` stays as a typo/wrong-unit guard only.
+    "chest": {"label": "Chest", "unit": "cm", "auto": False, "max": 300, "measurement": True},
+    "waist": {"label": "Waist", "unit": "cm", "auto": False, "max": 300, "measurement": True},
+    "hips":  {"label": "Hips",  "unit": "cm", "auto": False, "max": 300, "measurement": True},
+    "neck":  {"label": "Neck",  "unit": "cm", "auto": False, "max": 200, "measurement": True},
+    "arms":  {"label": "Arms",  "unit": "cm", "auto": False, "max": 200, "measurement": True},
+    "thigh": {"label": "Thigh", "unit": "cm", "auto": False, "max": 200, "measurement": True},
+    "calf":  {"label": "Calf",  "unit": "cm", "auto": False, "max": 200, "measurement": True},
 }
 
 
